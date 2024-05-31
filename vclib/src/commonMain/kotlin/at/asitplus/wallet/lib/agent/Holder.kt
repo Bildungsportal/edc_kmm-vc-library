@@ -1,9 +1,15 @@
 package at.asitplus.wallet.lib.agent
 
+import at.asitplus.KmmResult
+import at.asitplus.jsonpath.core.NormalizedJsonPath
 import at.asitplus.wallet.lib.data.ConstantIndex
 import at.asitplus.wallet.lib.data.VerifiableCredentialJws
 import at.asitplus.wallet.lib.data.VerifiableCredentialSdJwt
 import at.asitplus.wallet.lib.data.VerifiablePresentation
+import at.asitplus.wallet.lib.data.dif.FormatHolder
+import at.asitplus.wallet.lib.data.dif.InputDescriptor
+import at.asitplus.wallet.lib.data.dif.PresentationDefinition
+import at.asitplus.wallet.lib.data.dif.PresentationSubmission
 import at.asitplus.wallet.lib.iso.IssuerSigned
 
 /**
@@ -18,6 +24,8 @@ interface Holder {
      * e.g. `did:key:mAB...` or `urn:ietf:params:oauth:jwk-thumbprint:sha256:...`
      */
     val identifier: String
+
+    val defaultPathAuthorizationValidator: (SubjectCredentialStore.StoreEntry, NormalizedJsonPath) -> Boolean
 
     /**
      * Sets the revocation list ot use for further processing of Verifiable Credentials
@@ -87,52 +95,72 @@ interface Holder {
      * Note that the revocation status may be [Validator.RevocationStatus.UNKNOWN] if no revocation list
      * has been set with [setRevocationList]
      */
-    suspend fun getCredentials(
-        credentialSchemes: Collection<ConstantIndex.CredentialScheme>? = null,
-    ): Collection<StoredCredential>?
+    suspend fun getCredentials(): Collection<StoredCredential>?
 
-    sealed class StoredCredential {
-        data class Vc(
-            val vcSerialized: String,
-            val vc: VerifiableCredentialJws,
-            val status: Validator.RevocationStatus
-        ) : StoredCredential()
+    sealed class StoredCredential(
+        open val storeEntry: SubjectCredentialStore.StoreEntry,
+        val status: Validator.RevocationStatus,
+    ) {
+        class Vc(
+            override val storeEntry: SubjectCredentialStore.StoreEntry.Vc,
+            status: Validator.RevocationStatus
+        ) : StoredCredential(
+            storeEntry = storeEntry, status = status
+        )
 
-        data class SdJwt(
-            val vcSerialized: String,
-            val sdJwt: VerifiableCredentialSdJwt,
-            val status: Validator.RevocationStatus
-        ) : StoredCredential()
+        class SdJwt(
+            override val storeEntry: SubjectCredentialStore.StoreEntry.SdJwt,
+            status: Validator.RevocationStatus
+        ) : StoredCredential(
+            storeEntry = storeEntry, status = status
+        )
 
-        data class Iso(
-            val issuerSigned: IssuerSigned
-        ) : StoredCredential()
+        class Iso(
+            override val storeEntry: SubjectCredentialStore.StoreEntry.Iso,
+            status: Validator.RevocationStatus
+        ) : StoredCredential(
+            storeEntry = storeEntry, status = status
+        )
     }
 
-    /**
-     * Creates a [VerifiablePresentation] serialized as a JWT for all the credentials we have stored,
-     * that match the [credentialSchemes] (if specified). Optionally filters by [requestedClaims] (e.g. in ISO case).
-     *
-     * May return null if no valid credentials (i.e. non-revoked, matching attribute name) are available.
-     */
-    suspend fun createPresentation(
-        challenge: String,
-        audienceId: String,
-        credentialSchemes: Collection<ConstantIndex.CredentialScheme>? = null,
-        requestedClaims: Collection<String>? = null,
-    ): CreatePresentationResult?
+    data class PresentationResponseParameters(
+        val presentationSubmission: PresentationSubmission,
+        val presentationResults: List<CreatePresentationResult>
+    )
 
     /**
-     * Creates a [VerifiablePresentation] with the given [validCredentials].
+     * Creates an array of [VerifiablePresentation] and a [PresentationSubmission] to match
+     * the [presentationDefinition].
      *
-     * Note: The caller is responsible that only valid credentials are passed to this function!
+     * @param fallbackFormatHolder: format holder to be used in case there is no format holder in a
+     *  given presentation definition and the input descriptor.
+     *  This will mostly resolve to be the some clientMetadata.vpFormats
+     * @param pathAuthorizationValidator: Provides the user of this library with a way to enforce
+     *  authorization rules.
      */
-    // TODO dont make this public
     suspend fun createPresentation(
-        validCredentials: List<String>,
         challenge: String,
         audienceId: String,
-    ): CreatePresentationResult?
+        presentationDefinition: PresentationDefinition,
+        fallbackFormatHolder: FormatHolder? = null,
+        pathAuthorizationValidator: (SubjectCredentialStore.StoreEntry, NormalizedJsonPath) -> Boolean = defaultPathAuthorizationValidator,
+    ): KmmResult<PresentationResponseParameters>
+
+    /**
+     * Creates a mapping from the input descriptors of the presentation definition to matching
+     * credentials and the fields that would need to be disclosed.
+     *
+     * @param fallbackFormatHolder: format holder to be used in case there is no format holder in a
+     *  given presentation definition and the input descriptor.
+     *  This will mostly resolve to be the some clientMetadata.vpFormats
+     * @param pathAuthorizationValidator: Provides the user of this library with a way to enforce
+     *  authorization rules.
+     */
+    suspend fun matchInputDescriptorsAgainstCredentialStore(
+        presentationDefinition: PresentationDefinition,
+        fallbackFormatHolder: FormatHolder? = null,
+        pathAuthorizationValidator: (SubjectCredentialStore.StoreEntry, NormalizedJsonPath) -> Boolean = { _, _ -> true },
+    ): KmmResult<Map<InputDescriptor, HolderAgent.CandidateInputMatchContainer?>>
 
     sealed class CreatePresentationResult {
         /**
@@ -149,7 +177,8 @@ interface Holder {
         /**
          * [document] contains a valid ISO 18013 [Document] with [IssuerSigned] and [DeviceSigned] structures
          */
-        data class Document(val document: at.asitplus.wallet.lib.iso.Document) : CreatePresentationResult()
+        data class Document(val document: at.asitplus.wallet.lib.iso.Document) :
+            CreatePresentationResult()
     }
 
 }

@@ -57,14 +57,12 @@ class VerifierAgent private constructor(
         if (sdJwtSigned != null) {
             return validator.verifyVpSdJwt(it, challenge, identifier)
         }
-        val jwsSigned = runCatching { JwsSigned.parse(it) }.getOrNull()
+        val jwsSigned = JwsSigned.parse(it).getOrNull()
         if (jwsSigned != null) {
             return validator.verifyVpJws(it, challenge, identifier)
         }
-        val document =
-            runCatching {
-                it.decodeToByteArrayOrNull(Base16(strict = true))?.let { bytes -> Document.deserialize(bytes) }
-            }.getOrNull()
+        val document = it.decodeToByteArrayOrNull(Base16(strict = true))
+            ?.let { bytes -> Document.deserialize(bytes).getOrNull() }
         if (document != null) {
             return validator.verifyDocument(document, challenge)
         }

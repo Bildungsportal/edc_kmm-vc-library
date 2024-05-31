@@ -2,14 +2,17 @@ package at.asitplus.wallet.lib.oidvci
 
 import at.asitplus.wallet.lib.data.VcDataModelConstants.VERIFIABLE_CREDENTIAL
 import at.asitplus.wallet.lib.oidc.AuthenticationRequestParameters
+import at.asitplus.wallet.lib.oidc.OpenIdConstants
 import at.asitplus.wallet.lib.oidc.OpenIdConstants.GRANT_TYPE_CODE
 import at.asitplus.wallet.lib.oidc.OpenIdConstants.TOKEN_TYPE_BEARER
+import at.asitplus.wallet.lib.oidc.jsonSerializer
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import io.ktor.http.*
 import kotlinx.serialization.encodeToString
 import kotlin.random.Random
+import kotlin.time.Duration.Companion.seconds
 
 class SerializationTest : FunSpec({
 
@@ -43,12 +46,12 @@ class SerializationTest : FunSpec({
         accessToken = randomString(),
         refreshToken = randomString(),
         tokenType = TOKEN_TYPE_BEARER,
-        expires = Random.nextInt(),
+        expires = Random.nextInt(1, Int.MAX_VALUE).seconds,
         scope = randomString(),
         clientNonce = randomString(),
-        clientNonceExpiresIn = Random.nextInt(),
+        clientNonceExpiresIn = Random.nextInt(1, Int.MAX_VALUE).seconds,
         authorizationPending = false,
-        interval = Random.nextInt(),
+        interval = Random.nextInt(1, Int.MAX_VALUE).seconds,
     )
 
     fun createCredentialRequest() = CredentialRequestParameters(
@@ -57,7 +60,7 @@ class SerializationTest : FunSpec({
             types = listOf(randomString(), randomString()),
         ),
         proof = CredentialRequestProof(
-            proofType = randomString(),
+            proofType = OpenIdConstants.ProofType.OTHER(randomString()),
             jwt = randomString()
         )
     )
@@ -67,7 +70,7 @@ class SerializationTest : FunSpec({
         credential = randomString(),
         acceptanceToken = randomString(),
         clientNonce = randomString(),
-        clientNonceExpiresIn = Random.nextInt(),
+        clientNonceExpiresIn = Random.nextInt(1, Int.MAX_VALUE).seconds,
     )
 
     test("createAuthorizationRequest as GET") {
@@ -112,34 +115,34 @@ class SerializationTest : FunSpec({
 
     test("createTokenResponse as JSON") {
         val params = createTokenResponse()
-        val json = at.asitplus.wallet.lib.oidc.jsonSerializer.encodeToString(params)
+        val json = jsonSerializer.encodeToString(params)
         println(json)
         json shouldContain "\"access_token\":"
         json shouldContain "\"token_type\":"
         json shouldContain "\"expires_in\":"
         json shouldContain "\"c_nonce\":"
         json shouldContain "\"c_nonce_expires_in\":"
-        val parsed: TokenResponseParameters = at.asitplus.wallet.lib.oidc.jsonSerializer.decodeFromString(json)
+        val parsed: TokenResponseParameters = jsonSerializer.decodeFromString(json)
         parsed shouldBe params
     }
 
     test("createCredentialRequest as JSON") {
         val params = createCredentialRequest()
-        val json = at.asitplus.wallet.lib.oidc.jsonSerializer.encodeToString(params)
+        val json = jsonSerializer.encodeToString(params)
         println(json)
         json shouldContain "\"type\":["
         json shouldContain "\"${params.credentialDefinition?.types?.first()}\""
         val parsed: CredentialRequestParameters =
-            at.asitplus.wallet.lib.oidc.jsonSerializer.decodeFromString<CredentialRequestParameters>(json)
+            jsonSerializer.decodeFromString<CredentialRequestParameters>(json)
         parsed shouldBe params
     }
 
     test("createCredentialResponse as JSON") {
         val params = createCredentialResponse()
-        val json = at.asitplus.wallet.lib.oidc.jsonSerializer.encodeToString(params)
+        val json = jsonSerializer.encodeToString(params)
         println(json)
         json shouldContain "\"format\":"
-        val parsed = at.asitplus.wallet.lib.oidc.jsonSerializer.decodeFromString<CredentialResponseParameters>(json)
+        val parsed = jsonSerializer.decodeFromString<CredentialResponseParameters>(json)
         parsed shouldBe params
     }
 })

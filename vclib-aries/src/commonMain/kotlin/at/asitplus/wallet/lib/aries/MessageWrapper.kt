@@ -23,11 +23,11 @@ class MessageWrapper(
 ) {
 
     suspend fun parseMessage(it: String): ReceivedMessage {
-        val jwsSigned = JwsSigned.parse(it)
+        val jwsSigned = JwsSigned.parse(it).getOrNull()
         if (jwsSigned != null) {
             return parseJwsMessage(jwsSigned, it)
         }
-        val jweEncrypted = JweEncrypted.parse(it)
+        val jweEncrypted = JweEncrypted.parse(it).getOrNull()
         if (jweEncrypted != null)
             return parseJweMessage(jweEncrypted, it)
         return ReceivedMessage.Error
@@ -40,20 +40,21 @@ class MessageWrapper(
     ): ReceivedMessage {
         Napier.d("Parsing JWE ${jweObject.serialize()}")
         val joseObject = jwsService.decryptJweObject(jweObject, serialized).getOrElse {
-            Napier.w("Could not parse JWE")
+            Napier.w("Could not parse JWE", it)
             return ReceivedMessage.Error
         }
         val payloadString = joseObject.payload.decodeToString()
         if (joseObject.header.contentType == JwsContentTypeConstants.DIDCOMM_SIGNED_JSON) {
-            val parsed = JwsSigned.parse(payloadString)
+            val parsed = JwsSigned.parse(payloadString).getOrNull()
                 ?: return ReceivedMessage.Error
                     .also { Napier.w("Could not parse inner JWS") }
             return parseJwsMessage(parsed, payloadString)
         }
         if (joseObject.header.contentType == JwsContentTypeConstants.DIDCOMM_PLAIN_JSON) {
-            val message = JsonWebMessage.deserialize(payloadString)
-                ?: return ReceivedMessage.Error
-                    .also { Napier.w("Could not parse plain message") }
+            val message = JsonWebMessage.deserialize(payloadString).getOrElse { ex ->
+                return ReceivedMessage.Error
+                    .also { Napier.w("Could not parse plain message", ex) }
+            }
             return ReceivedMessage.Success(message, joseObject.header.publicKey)
         }
         return ReceivedMessage.Error
@@ -67,9 +68,10 @@ class MessageWrapper(
                 .also { Napier.w("Signature invalid") }
         if (joseObject.header.contentType == JwsContentTypeConstants.DIDCOMM_PLAIN_JSON) {
             val payloadString = joseObject.payload.decodeToString()
-            val message = JsonWebMessage.deserialize(payloadString)
-                ?: return ReceivedMessage.Error
-                    .also { Napier.w("Could not parse plain message") }
+            val message = JsonWebMessage.deserialize(payloadString).getOrElse { ex ->
+                return ReceivedMessage.Error
+                    .also { Napier.w("Could not parse plain message", ex) }
+            }
             return ReceivedMessage.Success(message, joseObject.header.publicKey?.toJsonWebKey())
         }
         return ReceivedMessage.Error
@@ -78,7 +80,7 @@ class MessageWrapper(
 
     suspend fun createSignedAndEncryptedJwe(jwm: JsonWebMessage, recipientKey: JsonWebKey): KmmResult<JweEncrypted> {
         val jwt = createSignedJwt(jwm).getOrElse {
-            Napier.w("Can not create signed JWT for encryption")
+            Napier.w("Can not create signed JWT for encryption", it)
             return KmmResult.failure(it)
         }
         val jwe = jwsService.encryptJweObject(

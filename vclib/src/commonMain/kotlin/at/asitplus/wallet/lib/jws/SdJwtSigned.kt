@@ -44,16 +44,17 @@ data class SdJwtSigned(
             if (!input.contains("~")) return null.also { Napier.w("Could not parse SD-JWT: $input") }
             val stringList = input.replace("[^A-Za-z0-9-_.~]".toRegex(), "").split("~")
             if (stringList.isEmpty()) return null.also { Napier.w("Could not parse SD-JWT: $input") }
-            val jws = JwsSigned.parse(stringList.first())
+            val jws = JwsSigned.parse(stringList.first()).getOrNull()
                 ?: return null.also { Napier.w("Could not parse JWS from SD-JWT: $input") }
             val rawDisclosures = stringList.drop(1)
                 .mapNotNull { it.decodeToByteArrayOrNull(Base64UrlStrict) }
             val disclosures = stringList.drop(1).take(rawDisclosures.count())
                 .associateWith {
                     SelectiveDisclosureItem.deserialize(it.decodeToByteArray(Base64UrlStrict).decodeToString())
+                        .getOrNull()
                 }
             val keyBindingString = stringList.drop(1 + rawDisclosures.size).firstOrNull()
-            val keyBindingJws = keyBindingString?.let { JwsSigned.parse(it) }
+            val keyBindingJws = keyBindingString?.let { JwsSigned.parse(it).getOrNull() }
             return SdJwtSigned(jws, disclosures, keyBindingJws)
         }
     }
