@@ -3,11 +3,7 @@
 package at.asitplus.wallet.lib.agent
 
 import at.asitplus.KmmResult
-import at.asitplus.crypto.datatypes.CryptoAlgorithm
-import at.asitplus.crypto.datatypes.CryptoPublicKey
-import at.asitplus.crypto.datatypes.CryptoSignature
-import at.asitplus.crypto.datatypes.Digest
-import at.asitplus.crypto.datatypes.ECCurve
+import at.asitplus.crypto.datatypes.*
 import at.asitplus.crypto.datatypes.cose.CoseKey
 import at.asitplus.crypto.datatypes.jws.JsonWebKey
 import at.asitplus.crypto.datatypes.jws.JweAlgorithm
@@ -17,7 +13,17 @@ import at.asitplus.crypto.datatypes.pki.X509CertificateExtension
 
 interface CryptoService {
 
-    suspend fun sign(input: ByteArray): KmmResult<CryptoSignature>
+    suspend fun sign(input: ByteArray): KmmResult<CryptoSignature.RawByteEncodable> =
+        doSign(input).map {
+            when (it) {
+                is CryptoSignature.RawByteEncodable -> it
+                is CryptoSignature.NotRawByteEncodable -> when (it) {
+                    is CryptoSignature.EC.IndefiniteLength -> it.withCurve((publicKey as CryptoPublicKey.EC).curve)
+                }
+            }
+    }
+
+    suspend fun doSign(input: ByteArray): KmmResult<CryptoSignature>
 
     fun encrypt(
         key: ByteArray,
@@ -106,6 +112,47 @@ interface EphemeralKeyHolder {
 }
 
 expect class DefaultCryptoService() : CryptoService {
+    override suspend fun doSign(input: ByteArray): KmmResult<CryptoSignature>
+    override fun encrypt(
+        key: ByteArray,
+        iv: ByteArray,
+        aad: ByteArray,
+        input: ByteArray,
+        algorithm: JweEncryption
+    ): KmmResult<AuthenticatedCiphertext>
+
+    override suspend fun decrypt(
+        key: ByteArray,
+        iv: ByteArray,
+        aad: ByteArray,
+        input: ByteArray,
+        authTag: ByteArray,
+        algorithm: JweEncryption
+    ): KmmResult<ByteArray>
+
+    override fun generateEphemeralKeyPair(ecCurve: ECCurve): KmmResult<EphemeralKeyHolder>
+    override fun performKeyAgreement(
+        ephemeralKey: EphemeralKeyHolder,
+        recipientKey: JsonWebKey,
+        algorithm: JweAlgorithm
+    ): KmmResult<ByteArray>
+
+    override fun performKeyAgreement(
+        ephemeralKey: JsonWebKey,
+        algorithm: JweAlgorithm
+    ): KmmResult<ByteArray>
+
+    override fun messageDigest(
+        input: ByteArray,
+        digest: Digest
+    ): KmmResult<ByteArray>
+
+    override val algorithm: CryptoAlgorithm
+    override val publicKey: CryptoPublicKey
+    override val jsonWebKey: JsonWebKey
+    override val coseKey: CoseKey
+    override val certificate: X509Certificate?
+
     companion object {
         fun withSelfSignedCert(
             extensions: List<X509CertificateExtension> = listOf()
@@ -113,4 +160,12 @@ expect class DefaultCryptoService() : CryptoService {
     }
 }
 
-expect class DefaultVerifierCryptoService() : VerifierCryptoService
+expect class DefaultVerifierCryptoService() : VerifierCryptoService {
+    override val supportedAlgorithms: List<CryptoAlgorithm>
+    override fun verify(
+        input: ByteArray,
+        signature: CryptoSignature,
+        algorithm: CryptoAlgorithm,
+        publicKey: CryptoPublicKey
+    ): KmmResult<Boolean>
+}

@@ -1,5 +1,26 @@
 # Changelog
 
+Release 3.8.0:
+ - Kotlin 2.0.0
+ - Gradle 8.8
+ - Bouncy Castle 1.78.1
+ - Kotest 5.9.1
+ - Ktor 2.3.11
+ - kotlinx.datetime 0.6.0
+ - kotlinx.coroutines 1.8.1
+ - KmmResult 1.6.0
+ - Serialization 1.7.1-SNAPSHOT
+ - Extract credential classes for Mobile Driving Licence according to ISO 18013-5 into separate library, see <https://github.com/a-sit-plus/mobile-driving-licence-credential>
+ - Implementers need to specify supported credential representations in `CredentialScheme`
+ - Update `CredentialScheme` to split up properties for representations
+ - Refactor methods in `LibraryInitializer`, deprecating the old ones, to accomodate additional parameters for serializing ISO credentials
+ - Update SD-JWT implementation to include `sd_hash`
+ - Update SIOPv2 implementation to increase interoperability
+
+Release 3.7.1:
+ - SIOPv2: Support encrypting response objects, if requested by verifiers
+ - Refactor `VerifiableCredentialSdJwt` to implement draft 03 of SD-JWT for VC
+
 Release 3.7.0:
  - Add `OAuth2AuthorizationServerMetadata` data class which implements RFC8414
  - Change usage of `OidcUserInfo` in interfaces to `OidcUserInfoExtended`, to also deserialize unknown properties
@@ -19,7 +40,7 @@ Release 3.7.0:
  - Refactor `AuthenticationRequestParameters` → `AuthenticationRequestParametersFrom` to contain parsed parameters and their source
  - Update KMP-Crypto to 3.1.0, to support JWE and ECDH-ES
  - SIOPv2: Implement `x509_san_dns` and `x509_san_uri` client ID schemes
- - Refactor OpenIdConstants to contain sealed classes, where appropriate
+ - Refactor `OpenIdConstants` to contain sealed classes, where appropriate
 
 Release 3.6.1:
  * Update to KMP-Crypto 2.6.0

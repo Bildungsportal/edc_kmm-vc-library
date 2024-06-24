@@ -1,6 +1,8 @@
 package at.asitplus.wallet.lib.agent
 
+import at.asitplus.crypto.datatypes.jws.JwsSigned
 import at.asitplus.wallet.lib.data.IsoDocumentParsed
+import at.asitplus.wallet.lib.data.KeyBindingJws
 import at.asitplus.wallet.lib.data.SelectiveDisclosureItem
 import at.asitplus.wallet.lib.data.VerifiableCredentialJws
 import at.asitplus.wallet.lib.data.VerifiableCredentialSdJwt
@@ -44,6 +46,7 @@ interface Verifier {
     sealed class VerifyPresentationResult {
         data class Success(val vp: VerifiablePresentationParsed) : VerifyPresentationResult()
         data class SuccessSdJwt(
+            val jwsSigned: JwsSigned,
             val sdJwt: VerifiableCredentialSdJwt,
             val disclosures: List<SelectiveDisclosureItem>,
             val isRevoked: Boolean
@@ -57,7 +60,12 @@ interface Verifier {
     sealed class VerifyCredentialResult {
         data class SuccessJwt(val jws: VerifiableCredentialJws) : VerifyCredentialResult()
         data class SuccessSdJwt(
+            /**
+             * Extracted JWS from the input (containing also the disclosures)
+             */
+            val jwsSigned: JwsSigned,
             val sdJwt: VerifiableCredentialSdJwt,
+            val keyBindingJws: JwsSigned?,
             /**
              * Map of original serialized disclosure item to parsed item
              */
