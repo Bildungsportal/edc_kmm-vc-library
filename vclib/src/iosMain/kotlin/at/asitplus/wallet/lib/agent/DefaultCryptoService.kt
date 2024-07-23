@@ -1,12 +1,12 @@
-@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
+@file:OptIn(ExperimentalForeignApi::class, ExperimentalNativeApi::class)
 
 package at.asitplus.wallet.lib.agent
 
 import at.asitplus.KmmResult
-import at.asitplus.crypto.datatypes.CryptoAlgorithm
 import at.asitplus.crypto.datatypes.CryptoPublicKey
 import at.asitplus.crypto.datatypes.CryptoSignature
 import at.asitplus.crypto.datatypes.ECCurve
+import at.asitplus.crypto.datatypes.X509SignatureAlgorithm
 import at.asitplus.crypto.datatypes.cose.CoseKey
 import at.asitplus.crypto.datatypes.cose.toCoseAlgorithm
 import at.asitplus.crypto.datatypes.cose.toCoseKey
@@ -14,12 +14,14 @@ import at.asitplus.crypto.datatypes.io.Base64Strict
 import at.asitplus.crypto.datatypes.jws.*
 import at.asitplus.crypto.datatypes.pki.X509Certificate
 import at.asitplus.crypto.datatypes.pki.X509CertificateExtension
+import at.asitplus.wallet.lib.agent.DefaultCryptoService.Companion.signInt
 import io.matthewnelson.encoding.core.Encoder.Companion.encodeToString
 import kotlinx.cinterop.*
 import platform.CoreFoundation.CFDataRef
 import platform.CoreFoundation.CFDictionaryCreateMutable
 import platform.Foundation.*
 import platform.Security.*
+import kotlin.experimental.ExperimentalNativeApi
 import platform.CoreFoundation.CFDictionaryAddValue as CFDictionaryAddValue1
 
 
@@ -33,46 +35,18 @@ import platform.CoreFoundation.CFDictionaryAddValue as CFDictionaryAddValue1
 @Suppress("UNCHECKED_CAST")
 actual class DefaultCryptoService : CryptoService {
 
-    private val secPrivateKey: SecKeyRef
-    private val secPublicKey: SecKeyRef
-    actual override val algorithm = CryptoAlgorithm.ES256
-    actual override val publicKey: CryptoPublicKey
-    actual override val certificate: X509Certificate?
+    actual override val keyPairAdapter: KeyPairAdapter
+    private val iosKeyPairAdapter: IosKeyPairAdapter
 
-    actual override val jsonWebKey: JsonWebKey
-        get() = publicKey.toJsonWebKey()
-
-    actual override val coseKey: CoseKey
-        get() = publicKey.toCoseKey(algorithm.toCoseAlgorithm()).getOrNull()!!
-
-    actual constructor() : this(listOf())
-
-    constructor(certificateExtensions: List<X509CertificateExtension>) {
-        val query = CFDictionaryCreateMutable(null, 2, null, null).apply {
-            CFDictionaryAddValue1(this, kSecAttrKeyType, kSecAttrKeyTypeEC)
-            CFDictionaryAddValue1(this, kSecAttrKeySizeInBits, CFBridgingRetain(NSNumber(256)))
-        }
-        secPrivateKey = SecKeyCreateRandomKey(query, null)!!
-        secPublicKey = SecKeyCopyPublicKey(secPrivateKey)!!
-        val publicKeyData = SecKeyCopyExternalRepresentation(secPublicKey, null)
-        val data = CFBridgingRelease(publicKeyData) as NSData
-        publicKey =
-            CryptoPublicKey.EC.fromAnsiX963Bytes(ECCurve.SECP_256_R_1, data.toByteArray()).apply { jwkId = didEncoded }
-        this.certificate = X509Certificate.generateSelfSignedCertificate(this, extensions = certificateExtensions)
-    }
-
-    private fun signInt(input: ByteArray): ByteArray {
-        memScoped {
-            val inputData = CFBridgingRetain(toData(input)) as CFDataRef
-            val signature =
-                SecKeyCreateSignature(secPrivateKey, kSecKeyAlgorithmECDSASignatureMessageX962SHA256, inputData, null)
-            val data = CFBridgingRelease(signature) as NSData
-            return data.toByteArray()
-        }
+    actual constructor(keyPairAdapter: KeyPairAdapter) {
+        assert(keyPairAdapter is IosKeyPairAdapter)
+        keyPairAdapter as IosKeyPairAdapter
+        this.keyPairAdapter = keyPairAdapter
+        this.iosKeyPairAdapter = keyPairAdapter
     }
 
     actual override suspend fun doSign(input: ByteArray): KmmResult<CryptoSignature> {
-        return KmmResult.success(CryptoSignature.decodeFromDer(signInt(input)))
+        return KmmResult.success(CryptoSignature.decodeFromDer(signInt(input, iosKeyPairAdapter.secPrivateKey)))
     }
 
     actual override fun encrypt(
@@ -113,7 +87,7 @@ actual class DefaultCryptoService : CryptoService {
             ?: return KmmResult.failure(Exception("Cannot create in-memory private key"))
         val publicKey = SecKeyCopyPublicKey(privateKey)
             ?: return KmmResult.failure(Exception("Cannot create public key"))
-        return KmmResult.success(DefaultEphemeralKeyHolder(ecCurve,publicKey, privateKey))
+        return KmmResult.success(DefaultEphemeralKeyHolder(ecCurve, publicKey, privateKey))
     }
 
     actual override fun performKeyAgreement(
@@ -135,21 +109,66 @@ actual class DefaultCryptoService : CryptoService {
         return KmmResult.success(input)
     }
 
-    actual companion object {
-        actual fun withSelfSignedCert(extensions: List<X509CertificateExtension>): CryptoService =
-            DefaultCryptoService(certificateExtensions = extensions)
+    companion object {
+        fun signInt(input: ByteArray, privateKeyRef: SecKeyRef): ByteArray {
+            memScoped {
+                val inputData = CFBridgingRetain(toData(input)) as CFDataRef
+                val signature =
+                    SecKeyCreateSignature(privateKeyRef, kSecKeyAlgorithmECDSASignatureMessageX962SHA256, inputData, null)
+                val data = CFBridgingRelease(signature) as NSData
+                return data.toByteArray()
+            }
+        }
     }
+
+}
+
+actual fun RandomKeyPairAdapter(extensions: List<X509CertificateExtension>): KeyPairAdapter {
+    val query = CFDictionaryCreateMutable(null, 2, null, null).apply {
+        CFDictionaryAddValue1(this, kSecAttrKeyType, kSecAttrKeyTypeEC)
+        CFDictionaryAddValue1(this, kSecAttrKeySizeInBits, CFBridgingRetain(NSNumber(256)))
+    }
+    val secPrivateKey = SecKeyCreateRandomKey(query, null)!!
+    val secPublicKey = SecKeyCopyPublicKey(secPrivateKey)!!
+    val publicKeyData = SecKeyCopyExternalRepresentation(secPublicKey, null)
+    val data = CFBridgingRelease(publicKeyData) as NSData
+    val publicKey = CryptoPublicKey.EC.fromAnsiX963Bytes(ECCurve.SECP_256_R_1, data.toByteArray())
+    val signingAlgorithm = X509SignatureAlgorithm.ES256
+    val certificate = X509Certificate.generateSelfSignedCertificate(publicKey, signingAlgorithm, extensions) {
+        val intSign = signInt(it, secPrivateKey)
+        KmmResult.success(CryptoSignature.decodeFromDer(intSign))
+    }
+    return IosKeyPairAdapter(secPrivateKey, secPublicKey, signingAlgorithm, certificate)
+}
+
+class IosKeyPairAdapter(
+    val secPrivateKey: SecKeyRef,
+    val secPublicKey: SecKeyRef,
+    override val signingAlgorithm: X509SignatureAlgorithm,
+    override val certificate: X509Certificate?
+) : KeyPairAdapter {
+    private val publicKeyData = SecKeyCopyExternalRepresentation(secPublicKey, null)
+    private val data = CFBridgingRelease(publicKeyData) as NSData
+    override val publicKey: CryptoPublicKey =
+        CryptoPublicKey.EC.fromAnsiX963Bytes(ECCurve.SECP_256_R_1, data.toByteArray())
+    override val identifier: String = publicKey.didEncoded
+    override val jsonWebKey: JsonWebKey
+        get() = publicKey.toJsonWebKey()
+    override val coseKey: CoseKey
+        get() = publicKey.toCoseKey(signingAlgorithm.toCoseAlgorithm().getOrThrow()).getOrThrow()
+
 }
 
 @Suppress("UNCHECKED_CAST")
 actual class DefaultVerifierCryptoService : VerifierCryptoService {
 
-    actual override val supportedAlgorithms: List<CryptoAlgorithm> = CryptoAlgorithm.entries.filter { it.isEc }
+    actual override val supportedAlgorithms: List<X509SignatureAlgorithm> =
+        X509SignatureAlgorithm.entries.filter { it.isEc }
 
     actual override fun verify(
         input: ByteArray,
         signature: CryptoSignature,
-        algorithm: CryptoAlgorithm,
+        algorithm: X509SignatureAlgorithm,
         publicKey: CryptoPublicKey
     ): KmmResult<Boolean> {
         // TODO RSA
@@ -181,9 +200,11 @@ actual class DefaultVerifierCryptoService : VerifierCryptoService {
 
 }
 
-data class DefaultEphemeralKeyHolder(val crv : ECCurve, val publicKey: SecKeyRef, val privateKey: SecKeyRef? = null) : EphemeralKeyHolder {
+data class DefaultEphemeralKeyHolder(val crv: ECCurve, val publicKey: SecKeyRef, val privateKey: SecKeyRef? = null) :
+    EphemeralKeyHolder {
 
-    override val publicJsonWebKey = CryptoPublicKey.EC.fromAnsiX963Bytes(crv,
+    override val publicJsonWebKey = CryptoPublicKey.EC.fromAnsiX963Bytes(
+        crv,
         (CFBridgingRelease(
             SecKeyCopyExternalRepresentation(
                 publicKey,

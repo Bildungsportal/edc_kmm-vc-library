@@ -1,6 +1,6 @@
 package at.asitplus.wallet.lib.jws
 
-import at.asitplus.crypto.datatypes.CryptoAlgorithm
+import at.asitplus.crypto.datatypes.X509SignatureAlgorithm
 import at.asitplus.crypto.datatypes.io.Base64UrlStrict
 import at.asitplus.crypto.datatypes.jws.JweAlgorithm
 import at.asitplus.crypto.datatypes.jws.JweEncrypted
@@ -26,6 +26,7 @@ import com.nimbusds.jose.crypto.RSADecrypter
 import com.nimbusds.jose.crypto.RSAEncrypter
 import com.nimbusds.jose.crypto.RSASSASigner
 import com.nimbusds.jose.crypto.RSASSAVerifier
+import com.nimbusds.jose.jwk.JWK
 import io.kotest.assertions.withClue
 import io.kotest.core.spec.style.FreeSpec
 import io.kotest.matchers.nulls.shouldBeNull
@@ -53,13 +54,13 @@ class JwsServiceJvmTest : FreeSpec({
             ("RSA" to 3072),
             ("RSA" to 4096)
         )
-    val rsaVersions: MutableList<CryptoAlgorithm> = mutableListOf(
-        CryptoAlgorithm.RS256,
-        CryptoAlgorithm.RS384,
-        CryptoAlgorithm.RS512,
-        CryptoAlgorithm.PS256,
-        CryptoAlgorithm.PS384,
-        CryptoAlgorithm.PS512
+    val rsaVersions: MutableList<X509SignatureAlgorithm> = mutableListOf(
+        X509SignatureAlgorithm.RS256,
+        X509SignatureAlgorithm.RS384,
+        X509SignatureAlgorithm.RS512,
+        X509SignatureAlgorithm.PS256,
+        X509SignatureAlgorithm.PS384,
+        X509SignatureAlgorithm.PS512
     )
 
     configurations.forEach { thisConfiguration ->
@@ -70,9 +71,9 @@ class JwsServiceJvmTest : FreeSpec({
 
             val algo = when (thisConfiguration.first) {
                 "EC" -> when (thisConfiguration.second) {
-                    256 -> CryptoAlgorithm.ES256
-                    384 -> CryptoAlgorithm.ES384
-                    521 -> CryptoAlgorithm.ES512
+                    256 -> X509SignatureAlgorithm.ES256
+                    384 -> X509SignatureAlgorithm.ES384
+                    521 -> X509SignatureAlgorithm.ES512
                     else -> throw IllegalArgumentException("Unknown EC Curve size") // necessary(compiler), but otherwise redundant else-branch
                 }
 
@@ -85,10 +86,10 @@ class JwsServiceJvmTest : FreeSpec({
             }
 
             val jweAlgorithm = when (algo) {
-                CryptoAlgorithm.ES256, CryptoAlgorithm.ES384, CryptoAlgorithm.ES512 -> JweAlgorithm.ECDH_ES
-                CryptoAlgorithm.RS256, CryptoAlgorithm.PS256 -> JweAlgorithm.RSA_OAEP_256
-                CryptoAlgorithm.RS384, CryptoAlgorithm.PS384 -> JweAlgorithm.RSA_OAEP_384
-                CryptoAlgorithm.RS512, CryptoAlgorithm.PS512 -> JweAlgorithm.RSA_OAEP_512
+                X509SignatureAlgorithm.ES256, X509SignatureAlgorithm.ES384, X509SignatureAlgorithm.ES512 -> JweAlgorithm.ECDH_ES
+                X509SignatureAlgorithm.RS256, X509SignatureAlgorithm.PS256 -> JweAlgorithm.RSA_OAEP_256
+                X509SignatureAlgorithm.RS384, X509SignatureAlgorithm.PS384 -> JweAlgorithm.RSA_OAEP_384
+                X509SignatureAlgorithm.RS512, X509SignatureAlgorithm.PS512 -> JweAlgorithm.RSA_OAEP_512
                 else -> throw IllegalArgumentException("Unknown JweAlgorithm")
             }
 
@@ -128,8 +129,10 @@ class JwsServiceJvmTest : FreeSpec({
 
                 "Signed object from ext. library can be verified with int. library" {
                     val stringPayload = jsonSerializer.encodeToString(randomPayload)
-                    val libHeader = JWSHeader.Builder(JWSAlgorithm(algo.name)).type(JOSEObjectType("JWT"))
-                        .keyID(cryptoService.jsonWebKey.keyId).build()
+                    val libHeader = JWSHeader.Builder(JWSAlgorithm(algo.name))
+                        .type(JOSEObjectType("JWT"))
+                        .jwk(JWK.parse(cryptoService.keyPairAdapter.jsonWebKey.serialize()))
+                        .build()
                     val libObject = JWSObject(libHeader, Payload(stringPayload)).also {
                         it.sign(jvmSigner)
                     }
@@ -178,11 +181,12 @@ class JwsServiceJvmTest : FreeSpec({
                 if (thisConfiguration.first == "EC") {
                     "Encrypted object from ext. library can be decrypted with int. library" {
                         val stringPayload = jsonSerializer.encodeToString(randomPayload)
-                        val libJweHeader = JWEHeader.Builder(JWEAlgorithm(jweAlgorithm.identifier), EncryptionMethod.A256GCM)
-                            .type(JOSEObjectType(JwsContentTypeConstants.DIDCOMM_ENCRYPTED_JSON))
-                            .contentType(JwsContentTypeConstants.DIDCOMM_PLAIN_JSON)
-                            .keyID(cryptoService.jsonWebKey.keyId)
-                            .build()
+                        val libJweHeader =
+                            JWEHeader.Builder(JWEAlgorithm(jweAlgorithm.identifier), EncryptionMethod.A256GCM)
+                                .type(JOSEObjectType(JwsContentTypeConstants.DIDCOMM_ENCRYPTED_JSON))
+                                .jwk(JWK.parse(cryptoService.keyPairAdapter.jsonWebKey.serialize()))
+                                .contentType(JwsContentTypeConstants.DIDCOMM_PLAIN_JSON)
+                                .build()
                         val libJweObject = JWEObject(libJweHeader, Payload(stringPayload)).also {
                             it.encrypt(jvmEncrypter)
                         }
@@ -200,7 +204,7 @@ class JwsServiceJvmTest : FreeSpec({
                         val encrypted = jwsService.encryptJweObject(
                             JwsContentTypeConstants.DIDCOMM_ENCRYPTED_JSON,
                             stringPayload.encodeToByteArray(),
-                            cryptoService.jsonWebKey,
+                            cryptoService.keyPairAdapter.jsonWebKey,
                             JwsContentTypeConstants.DIDCOMM_PLAIN_JSON,
                             jweAlgorithm,
                             JweEncryption.A256GCM,

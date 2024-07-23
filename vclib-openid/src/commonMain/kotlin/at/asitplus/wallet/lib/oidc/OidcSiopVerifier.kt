@@ -1,6 +1,7 @@
 package at.asitplus.wallet.lib.oidc
 
 import at.asitplus.KmmResult
+import at.asitplus.catching
 import at.asitplus.crypto.datatypes.CryptoPublicKey
 import at.asitplus.crypto.datatypes.jws.JsonWebKeySet
 import at.asitplus.crypto.datatypes.jws.JweEncrypted
@@ -12,7 +13,7 @@ import at.asitplus.crypto.datatypes.pki.leaf
 import at.asitplus.jsonpath.JsonPath
 import at.asitplus.jsonpath.core.NormalizedJsonPath
 import at.asitplus.jsonpath.core.NormalizedJsonPathSegment
-import at.asitplus.wallet.lib.agent.CryptoService
+import at.asitplus.wallet.lib.agent.DefaultCryptoService
 import at.asitplus.wallet.lib.agent.DefaultVerifierCryptoService
 import at.asitplus.wallet.lib.agent.Verifier
 import at.asitplus.wallet.lib.data.ConstantIndex
@@ -93,11 +94,10 @@ class OidcSiopVerifier private constructor(
     companion object {
         fun newInstance(
             verifier: Verifier,
-            cryptoService: CryptoService,
             relyingPartyUrl: String,
             responseUrl: String? = null,
             verifierJwsService: VerifierJwsService = DefaultVerifierJwsService(DefaultVerifierCryptoService()),
-            jwsService: JwsService = DefaultJwsService(cryptoService),
+            jwsService: JwsService = DefaultJwsService(DefaultCryptoService(verifier.keyPair)),
             timeLeewaySeconds: Long = 300L,
             clock: Clock = Clock.System,
             attestationJwt: JwsSigned,
@@ -105,7 +105,7 @@ class OidcSiopVerifier private constructor(
             verifier = verifier,
             relyingPartyUrl = relyingPartyUrl,
             responseUrl = responseUrl,
-            agentPublicKey = cryptoService.publicKey,
+            agentPublicKey = verifier.keyPair.publicKey,
             jwsService = jwsService,
             verifierJwsService = verifierJwsService,
             timeLeewaySeconds = timeLeewaySeconds,
@@ -117,11 +117,10 @@ class OidcSiopVerifier private constructor(
 
         fun newInstance(
             verifier: Verifier,
-            cryptoService: CryptoService,
             relyingPartyUrl: String?,
             responseUrl: String? = null,
             verifierJwsService: VerifierJwsService = DefaultVerifierJwsService(DefaultVerifierCryptoService()),
-            jwsService: JwsService = DefaultJwsService(cryptoService),
+            jwsService: JwsService = DefaultJwsService(DefaultCryptoService(verifier.keyPair)),
             timeLeewaySeconds: Long = 300L,
             clock: Clock = Clock.System,
             x5c: CertificateChain,
@@ -129,7 +128,7 @@ class OidcSiopVerifier private constructor(
             verifier = verifier,
             relyingPartyUrl = relyingPartyUrl,
             responseUrl = responseUrl,
-            agentPublicKey = cryptoService.publicKey,
+            agentPublicKey = verifier.keyPair.publicKey,
             jwsService = jwsService,
             verifierJwsService = verifierJwsService,
             timeLeewaySeconds = timeLeewaySeconds,
@@ -142,11 +141,10 @@ class OidcSiopVerifier private constructor(
 
         fun newInstance(
             verifier: Verifier,
-            cryptoService: CryptoService,
             relyingPartyUrl: String,
             responseUrl: String? = null,
             verifierJwsService: VerifierJwsService = DefaultVerifierJwsService(DefaultVerifierCryptoService()),
-            jwsService: JwsService = DefaultJwsService(cryptoService),
+            jwsService: JwsService = DefaultJwsService(DefaultCryptoService(verifier.keyPair)),
             timeLeewaySeconds: Long = 300L,
             clock: Clock = Clock.System,
             clientIdScheme: OpenIdConstants.ClientIdScheme = REDIRECT_URI,
@@ -154,7 +152,7 @@ class OidcSiopVerifier private constructor(
             verifier = verifier,
             relyingPartyUrl = relyingPartyUrl,
             responseUrl = responseUrl,
-            agentPublicKey = cryptoService.publicKey,
+            agentPublicKey = verifier.keyPair.publicKey,
             jwsService = jwsService,
             verifierJwsService = verifierJwsService,
             timeLeewaySeconds = timeLeewaySeconds,
@@ -203,9 +201,10 @@ class OidcSiopVerifier private constructor(
         requestUrl: String,
     ): String {
         val urlBuilder = URLBuilder(walletUrl)
+        val clientId = (x5c?.let { it.leaf.tbsCertificate.subjectAlternativeNames?.dnsNames?.firstOrNull() }
+            ?: relyingPartyUrl)
         AuthenticationRequestParameters(
-            clientId = x5c?.let { it.leaf.tbsCertificate.subjectAlternativeNames?.dnsNames?.firstOrNull() }
-                ?: relyingPartyUrl,
+            clientId = clientId,
             clientMetadataUri = clientMetadataUrl,
             requestUri = requestUrl,
         ).encodeToParameters()
@@ -276,17 +275,38 @@ class OidcSiopVerifier private constructor(
     suspend fun createAuthnRequestUrlWithRequestObject(
         walletUrl: String,
         requestOptions: RequestOptions = RequestOptions()
-    ): KmmResult<String> {
-        val jar = createAuthnRequestAsSignedRequestObject(requestOptions).getOrElse {
-            return KmmResult.failure(it)
-        }
+    ): KmmResult<String> = catching {
+        val jar = createAuthnRequestAsSignedRequestObject(requestOptions).getOrThrow()
         val urlBuilder = URLBuilder(walletUrl)
         AuthenticationRequestParameters(
             clientId = relyingPartyUrl,
             request = jar.serialize(),
         ).encodeToParameters()
             .forEach { urlBuilder.parameters.append(it.key, it.value) }
-        return KmmResult.success(urlBuilder.buildString())
+        urlBuilder.buildString()
+    }
+
+    /**
+     * Creates an OIDC Authentication Request, encoded as query parameters to the [walletUrl],
+     * containing a reference (`request_uri`, see [AuthenticationRequestParameters.requestUri]) to the
+     * JWS Authorization Request (JAR, RFC9101), containing the request parameters itself.
+     *
+     * @param requestUrl the URL where the request itself can be loaded by the client
+     * @return The URL to display to the Wallet, and the JWS that shall be made accessible under [requestUrl]
+     */
+    suspend fun createAuthnRequestUrlWithRequestObjectByReference(
+        walletUrl: String,
+        requestUrl: String,
+        requestOptions: RequestOptions = RequestOptions()
+    ): KmmResult<Pair<String, String>> = catching {
+        val jar = createAuthnRequestAsSignedRequestObject(requestOptions).getOrThrow()
+        val urlBuilder = URLBuilder(walletUrl)
+        AuthenticationRequestParameters(
+            clientId = relyingPartyUrl,
+            requestUri = requestUrl,
+        ).encodeToParameters()
+            .forEach { urlBuilder.parameters.append(it.key, it.value) }
+        urlBuilder.buildString() to jar.serialize()
     }
 
     /**
@@ -304,12 +324,12 @@ class OidcSiopVerifier private constructor(
      */
     suspend fun createAuthnRequestAsSignedRequestObject(
         requestOptions: RequestOptions = RequestOptions(),
-    ): KmmResult<JwsSigned> {
+    ): KmmResult<JwsSigned> = catching {
         val requestObject = createAuthnRequest(requestOptions)
         val requestObjectSerialized = jsonSerializer.encodeToString(
             requestObject.copy(audience = relyingPartyUrl, issuer = relyingPartyUrl)
         )
-        val signedJws = jwsService.createSignedJwsAddingParams(
+        jwsService.createSignedJwsAddingParams(
             header = JwsHeader(
                 algorithm = jwsService.algorithm,
                 attestationJwt = attestationJwt?.serialize(),
@@ -317,11 +337,7 @@ class OidcSiopVerifier private constructor(
             ),
             payload = requestObjectSerialized.encodeToByteArray(),
             addJsonWebKey = x5c == null
-        ).getOrElse {
-            Napier.w("Could not sign JWS form authnRequest", it)
-            return KmmResult.failure(it)
-        }
-        return KmmResult.success(signedJws)
+        ).getOrThrow()
     }
 
     /**
@@ -544,9 +560,9 @@ class OidcSiopVerifier private constructor(
         if (idToken.issuer != idToken.subject)
             return AuthnResponseResult.ValidationError("iss", params.state)
                 .also { Napier.d("Wrong issuer: ${idToken.issuer}, expected: ${idToken.subject}") }
-        val expectedAudience = relyingPartyUrl
-            ?: x5c?.leaf?.tbsCertificate?.subjectAlternativeNames?.dnsNames?.firstOrNull()
-        if (idToken.audience != expectedAudience)
+        val validAudiences = listOfNotNull(relyingPartyUrl,
+            x5c?.leaf?.tbsCertificate?.subjectAlternativeNames?.dnsNames?.firstOrNull())
+        if (idToken.audience !in validAudiences)
             return AuthnResponseResult.ValidationError("aud", params.state)
                 .also { Napier.d("audience not valid: ${idToken.audience}") }
         if (idToken.expiration < (clock.now() - timeLeeway))

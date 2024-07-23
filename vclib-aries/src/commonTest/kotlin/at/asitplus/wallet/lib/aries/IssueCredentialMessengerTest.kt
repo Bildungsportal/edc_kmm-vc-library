@@ -1,11 +1,12 @@
 package at.asitplus.wallet.lib.aries
 
-import at.asitplus.wallet.lib.agent.CryptoService
-import at.asitplus.wallet.lib.agent.DefaultCryptoService
 import at.asitplus.wallet.lib.agent.Holder
 import at.asitplus.wallet.lib.agent.HolderAgent
 import at.asitplus.wallet.lib.agent.Issuer
 import at.asitplus.wallet.lib.agent.IssuerAgent
+import at.asitplus.wallet.lib.agent.KeyPairAdapter
+import at.asitplus.wallet.lib.agent.RandomKeyPairAdapter
+import at.asitplus.wallet.lib.agent.SubjectCredentialStore
 import at.asitplus.wallet.lib.data.AtomicAttribute2023
 import at.asitplus.wallet.lib.data.ConstantIndex
 import com.benasher44.uuid.uuid4
@@ -17,8 +18,8 @@ import io.kotest.matchers.types.shouldBeInstanceOf
 
 class IssueCredentialMessengerTest : FreeSpec() {
 
-    private lateinit var issuerCryptoService: CryptoService
-    private lateinit var holderCryptoService: CryptoService
+    private lateinit var issuerKeyPair: KeyPairAdapter
+    private lateinit var holderKeyPair: KeyPairAdapter
     private lateinit var issuer: Issuer
     private lateinit var holder: Holder
     private lateinit var issuerServiceEndpoint: String
@@ -27,10 +28,10 @@ class IssueCredentialMessengerTest : FreeSpec() {
 
     init {
         beforeEach {
-            issuerCryptoService = DefaultCryptoService()
-            holderCryptoService = DefaultCryptoService()
-            issuer = IssuerAgent.newDefaultInstance(issuerCryptoService, dataProvider = DummyCredentialDataProvider())
-            holder = HolderAgent.newDefaultInstance(holderCryptoService)
+            issuerKeyPair = RandomKeyPairAdapter()
+            holderKeyPair = RandomKeyPairAdapter()
+            issuer = IssuerAgent(issuerKeyPair, DummyCredentialDataProvider())
+            holder = HolderAgent(holderKeyPair)
             issuerServiceEndpoint = "https://example.com/issue?${uuid4()}"
             holderMessenger = initHolderMessenger(ConstantIndex.AtomicAttribute2023)
         }
@@ -41,7 +42,6 @@ class IssueCredentialMessengerTest : FreeSpec() {
             val issuedCredential = runProtocolFlow()
 
             assertAtomicVc(issuedCredential)
-            assertAttachment(issuedCredential, "picture")
         }
 
         // can't be created with a wrong keyId anymore, so that test was removed
@@ -50,14 +50,14 @@ class IssueCredentialMessengerTest : FreeSpec() {
     private fun initHolderMessenger(scheme: ConstantIndex.CredentialScheme) =
         IssueCredentialMessenger.newHolderInstance(
             holder = holder,
-            messageWrapper = MessageWrapper(holderCryptoService),
+            messageWrapper = MessageWrapper(holderKeyPair),
             credentialScheme = scheme,
         )
 
     private fun initIssuerMessenger(scheme: ConstantIndex.CredentialScheme) =
         IssueCredentialMessenger.newIssuerInstance(
             issuer = issuer,
-            messageWrapper = MessageWrapper(issuerCryptoService),
+            messageWrapper = MessageWrapper(issuerKeyPair),
             serviceEndpoint = issuerServiceEndpoint,
             credentialScheme = scheme,
         )
@@ -84,26 +84,12 @@ class IssueCredentialMessengerTest : FreeSpec() {
         return issuedCredential
     }
 
-    private fun assertAtomicVc(issuedCredentials: IssueCredentialProtocolResult) {
-        issuedCredentials.acceptedVcJwt.shouldNotBeEmpty()
-        issuedCredentials.acceptedVcJwt.map { it.vc.credentialSubject }.forEach {
-            it.shouldBeInstanceOf<AtomicAttribute2023>()
-        }
-        issuedCredentials.rejected.shouldBeEmpty()
-    }
-
-    private fun assertAttachment(issuedCredentials: IssueCredentialProtocolResult, attributeName: String) {
-        issuedCredentials.acceptedVcJwt.shouldNotBeEmpty()
-        issuedCredentials.acceptedVcJwt.map { it.vc.credentialSubject }
-            .filterIsInstance<AtomicAttribute2023>()
-            .filter { it.name == attributeName }
-            .shouldNotBeEmpty()
-        issuedCredentials.attachments.shouldNotBeEmpty()
-    }
-
-    private fun assertEmptyVc(issuedCredentials: IssueCredentialProtocolResult) {
-        issuedCredentials.acceptedVcJwt.shouldBeEmpty()
-        issuedCredentials.rejected.shouldNotBeEmpty()
+    private fun assertAtomicVc(issuedCredential: IssueCredentialProtocolResult) {
+        val credential = issuedCredential.getOrThrow()
+        credential.shouldBeInstanceOf<Holder.StoredCredential.Vc>()
+        val storeEntry = credential.storeEntry
+        storeEntry.shouldBeInstanceOf<SubjectCredentialStore.StoreEntry.Vc>()
+        storeEntry.vc.vc.credentialSubject.shouldBeInstanceOf<AtomicAttribute2023>()
     }
 
 }

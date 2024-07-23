@@ -1,5 +1,6 @@
 package at.asitplus.wallet.lib.aries
 
+import at.asitplus.KmmResult
 import at.asitplus.crypto.datatypes.CryptoPublicKey
 import at.asitplus.crypto.datatypes.jws.JsonWebKey
 import at.asitplus.wallet.lib.DataSourceProblem
@@ -27,7 +28,7 @@ import at.asitplus.wallet.lib.msg.RequestCredentialBody
 import io.github.aakira.napier.Napier
 import kotlinx.serialization.encodeToString
 
-typealias IssueCredentialProtocolResult = Holder.StoredCredentialsResult
+typealias IssueCredentialProtocolResult = KmmResult<Holder.StoredCredential>
 
 /**
  * Use this class for exactly one instance of a protocol run.
@@ -142,7 +143,7 @@ class IssueCredentialProtocol(
     }
 
     private fun createOobInvitation(): InternalNextMessage {
-        val recipientKey = issuer?.identifier
+        val recipientKey = issuer?.keyPair?.identifier
             ?: return InternalNextMessage.IncorrectState("issuer")
         val message = OutOfBandInvitation(
             body = OutOfBandInvitationBody(
@@ -188,8 +189,7 @@ class IssueCredentialProtocol(
         credentialScheme: ConstantIndex.CredentialScheme,
         parentThreadId: String? = null,
     ): RequestCredential? {
-        val subject = holder?.identifier
-            ?: return null
+        val subject = holder?.keyPair?.identifier ?: return null
         val credentialManifest = CredentialManifest(
             issuer = "somebody",
             subject = subject,
@@ -227,60 +227,37 @@ class IssueCredentialProtocol(
 
         val uri = requestCredentialAttachment.credentialManifest.credential.schema.uri
         val requestedCredentialScheme = AttributeIndex.resolveSchemaUri(uri)
-        val requestedAttributeType = requestedCredentialScheme?.vcType
             ?: return problemReporter.problemLastMessage(lastMessage.threadId, "requested-attributes-empty")
 
         // TODO Is there a way to transport the format, i.e. JWT-VC or SD-JWT?
-        val cryptoPublicKey =
-            requestCredentialAttachment.credentialManifest.subject?.let { kotlin.runCatching { CryptoPublicKey.fromDid(it) }.getOrNull()}
-                ?: senderKey.toCryptoPublicKey().getOrNull()
-                ?: return problemReporter.problemInternal(lastMessage.threadId, "no-sender-key")
+        val cryptoPublicKey = requestCredentialAttachment.credentialManifest.subject
+            ?.let { kotlin.runCatching { CryptoPublicKey.fromDid(it) }.getOrNull() }
+            ?: senderKey.toCryptoPublicKey().getOrNull()
+            ?: return problemReporter.problemInternal(lastMessage.threadId, "no-sender-key")
         val issuedCredentials = issuer?.issueCredential(
             subjectPublicKey = cryptoPublicKey,
-            attributeTypes = listOf(requestedAttributeType),
+            credentialScheme = requestedCredentialScheme,
             representation = ConstantIndex.CredentialRepresentation.PLAIN_JWT
         ) ?: return problemReporter.problemInternal(lastMessage.threadId, "credentials-empty")
 
         //TODO: Pack this info into `args` or `comment`
-        if (issuedCredentials.failed.isNotEmpty()) {
+        val issuedCredential = issuedCredentials.getOrElse {
             //TODO prioritise which descriptors to handle when
             //TODO communicate auth problems too? we have an exception for that now…
-            return issuedCredentials.failed.firstOrNull { it.reason is DataSourceProblem }
-                ?.let {
-                    val comment = it.reason.message + (it.reason as DataSourceProblem).details?.let { ": $it" }
-                    problemReporter.problemRequirement(threadId, "data-source", comment)
-                } ?: problemReporter.problemInternal(lastMessage.threadId, "data-source")
-        }
-        if (issuedCredentials.successful.isEmpty())
-            return problemReporter.problemInternal(lastMessage.threadId, "credentials-empty")
-
-        val fulfillmentAttachments = mutableListOf<JwmAttachment>()
-        val binaryAttachments = mutableListOf<JwmAttachment>()
-        issuedCredentials.successful.forEach { cred ->
-            when (cred) {
-                is Issuer.IssuedCredential.Iso -> {
-                    fulfillmentAttachments.add(JwmAttachment.encodeBase64(cred.issuerSigned.serialize()))
-                }
-
-                is Issuer.IssuedCredential.VcJwt -> {
-                    val fulfillment = JwmAttachment.encodeJws(cred.vcJws)
-                    val binary = cred.attachments?.map {
-                        JwmAttachment.encode(
-                            data = it.data,
-                            filename = it.name,
-                            mediaType = it.mediaType,
-                            parent = fulfillment.id
-                        )
-                    } ?: listOf()
-                    fulfillmentAttachments.add(fulfillment)
-                    binaryAttachments.addAll(binary)
-                }
-
-                is Issuer.IssuedCredential.VcSdJwt -> {
-                    fulfillmentAttachments.add(JwmAttachment.encodeJws(cred.vcSdJwt))
-                }
+            return when {
+                it is DataSourceProblem -> it.toProblemRequirement()
+                it.cause != null && it.cause is DataSourceProblem -> (it.cause as DataSourceProblem).toProblemRequirement()
+                else -> problemReporter.problemInternal(lastMessage.threadId, "credentials-empty")
             }
         }
+        val fulfillmentAttachments = mutableListOf<JwmAttachment>()
+
+        when (issuedCredential) {
+            is Issuer.IssuedCredential.Iso -> fulfillmentAttachments.add(JwmAttachment.encodeBase64(issuedCredential.issuerSigned.serialize()))
+            is Issuer.IssuedCredential.VcJwt -> fulfillmentAttachments.add(JwmAttachment.encodeJws(issuedCredential.vcJws))
+            is Issuer.IssuedCredential.VcSdJwt -> fulfillmentAttachments.add(JwmAttachment.encodeJws(issuedCredential.vcSdJwt))
+        }
+
         val message = IssueCredential(
             body = IssueCredentialBody(
                 comment = "Here are your credentials",
@@ -292,12 +269,17 @@ class IssueCredentialProtocol(
                 }.toTypedArray()
             ),
             threadId = lastMessage.threadId!!, //is allowed to fail horribly
-            attachments = (fulfillmentAttachments + binaryAttachments).toTypedArray()
+            attachments = fulfillmentAttachments.toTypedArray()
         )
         return InternalNextMessage.SendAndWrap(message, senderKey)
             .also { this.threadId = message.threadId }
             .also { this.state = State.FINISHED }
     }
+
+    private fun DataSourceProblem.toProblemRequirement() =
+        problemReporter.problemRequirement(threadId, "data-source", formatComment())
+
+    private fun DataSourceProblem.formatComment(): String = message + details?.let { ": $it" }
 
     private suspend fun storeCredentials(lastMessage: IssueCredential): InternalNextMessage {
         val attachmentIdsForFulfillment = lastMessage.body.formats
@@ -307,40 +289,26 @@ class IssueCredentialProtocol(
             ?: return problemReporter.problemLastMessage(lastMessage.threadId, "attachments-missing")
         val issueCredentialAttachments = lastAttachments
             .filter { attachmentIdsForFulfillment.contains(it.id) }
-        val binaryAttachments = lastAttachments
-            .filter { !attachmentIdsForFulfillment.contains(it.id) }
         if (issueCredentialAttachments.isEmpty())
             return problemReporter.problemLastMessage(lastMessage.threadId, "attachments-format")
         val credentialList = issueCredentialAttachments
-            .mapNotNull { extractFulfillmentAttachment(it, binaryAttachments) }
-        this.result = holder?.storeCredentials(credentialList)
-            ?: IssueCredentialProtocolResult(notVerified = issueCredentialAttachments.mapNotNull { it.decodeString() })
+            .mapNotNull { extractFulfillmentAttachment(it) }
+            .firstOrNull() ?: return problemReporter.problemLastMessage(lastMessage.threadId, "attachments-format")
+        this.result = holder?.storeCredential(credentialList)
+            ?: return problemReporter.problemLastMessage(lastMessage.threadId, "no-holder")
 
         return InternalNextMessage.Finished(lastMessage)
             .also { this.state = State.FINISHED }
     }
 
-    private fun extractFulfillmentAttachment(
-        fulfillment: JwmAttachment,
-        binaryAttachments: List<JwmAttachment>
-    ): Holder.StoreCredentialInput? {
+    private fun extractFulfillmentAttachment(fulfillment: JwmAttachment): Holder.StoreCredentialInput? {
         runCatching { fulfillment.decodeString() }.getOrNull()?.let { decoded ->
-            val attachmentList = binaryAttachments
-                .filter { it.parent == fulfillment.id }
-                .mapNotNull { extractBinaryAttachment(it) }
-            return Holder.StoreCredentialInput.Vc(decoded, credentialScheme, attachmentList)
+            return Holder.StoreCredentialInput.Vc(decoded, credentialScheme)
         } ?: runCatching { fulfillment.decodeBinary() }.getOrNull()?.let { decoded ->
             IssuerSigned.deserialize(decoded).getOrNull()?.let { issuerSigned ->
                 return Holder.StoreCredentialInput.Iso(issuerSigned, credentialScheme)
             }
         } ?: return null
-    }
-
-    private fun extractBinaryAttachment(attachment: JwmAttachment): Issuer.Attachment? {
-        val filename = attachment.filename ?: return null
-        val mediaType = attachment.mediaType ?: return null
-        val decoded = attachment.decodeBinary() ?: return null
-        return Issuer.Attachment(filename, mediaType, decoded)
     }
 
     override fun getResult(): IssueCredentialProtocolResult? {

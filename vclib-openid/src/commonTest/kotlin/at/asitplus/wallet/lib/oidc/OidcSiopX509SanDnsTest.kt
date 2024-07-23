@@ -1,9 +1,20 @@
 package at.asitplus.wallet.lib.oidc
 
-import at.asitplus.crypto.datatypes.asn1.*
+import at.asitplus.crypto.datatypes.asn1.Asn1
+import at.asitplus.crypto.datatypes.asn1.Asn1EncapsulatingOctetString
+import at.asitplus.crypto.datatypes.asn1.Asn1Primitive
+import at.asitplus.crypto.datatypes.asn1.Asn1String
+import at.asitplus.crypto.datatypes.asn1.KnownOIDs
 import at.asitplus.crypto.datatypes.pki.SubjectAltNameImplicitTags
 import at.asitplus.crypto.datatypes.pki.X509CertificateExtension
-import at.asitplus.wallet.lib.agent.*
+import at.asitplus.wallet.lib.agent.Holder
+import at.asitplus.wallet.lib.agent.HolderAgent
+import at.asitplus.wallet.lib.agent.IssuerAgent
+import at.asitplus.wallet.lib.agent.KeyPairAdapter
+import at.asitplus.wallet.lib.agent.RandomKeyPairAdapter
+import at.asitplus.wallet.lib.agent.Verifier
+import at.asitplus.wallet.lib.agent.VerifierAgent
+import at.asitplus.wallet.lib.agent.toStoreCredentialInput
 import at.asitplus.wallet.lib.data.ConstantIndex
 import at.asitplus.wallet.lib.oidc.OidcSiopVerifier.RequestOptions
 import at.asitplus.wallet.lib.oidvci.formUrlEncode
@@ -11,15 +22,14 @@ import com.benasher44.uuid.uuid4
 import io.kotest.core.spec.style.FreeSpec
 import io.kotest.matchers.collections.shouldNotBeEmpty
 import io.kotest.matchers.types.shouldBeInstanceOf
-import kotlinx.coroutines.runBlocking
 
 class OidcSiopX509SanDnsTest : FreeSpec({
 
     lateinit var responseUrl: String
     lateinit var walletUrl: String
 
-    lateinit var holderCryptoService: CryptoService
-    lateinit var verifierCryptoService: CryptoService
+    lateinit var holderKeyPair: KeyPairAdapter
+    lateinit var verifierKeyPair: KeyPairAdapter
 
     lateinit var holderAgent: Holder
     lateinit var verifierAgent: Verifier
@@ -39,35 +49,32 @@ class OidcSiopX509SanDnsTest : FreeSpec({
                     )
                 }
             ))))
-        holderCryptoService = DefaultCryptoService()
-        verifierCryptoService = DefaultCryptoService.withSelfSignedCert(extensions)
+        holderKeyPair = RandomKeyPairAdapter()
+        verifierKeyPair = RandomKeyPairAdapter(extensions)
         responseUrl = "https://example.com"
         walletUrl = "https://example.com/wallet/${uuid4()}"
-        holderAgent = HolderAgent.newDefaultInstance(holderCryptoService)
-        verifierAgent = VerifierAgent.newDefaultInstance(verifierCryptoService.publicKey.didEncoded)
-        runBlocking {
-            holderAgent.storeCredentials(
-                IssuerAgent.newDefaultInstance(
-                    DefaultCryptoService(),
-                    dataProvider = DummyCredentialDataProvider(),
-                ).issueCredential(
-                    subjectPublicKey = holderCryptoService.publicKey,
-                    attributeTypes = listOf(ConstantIndex.AtomicAttribute2023.vcType),
-                    representation = ConstantIndex.CredentialRepresentation.SD_JWT,
-                ).toStoreCredentialInput()
-            )
-        }
+        holderAgent = HolderAgent(holderKeyPair)
+        verifierAgent = VerifierAgent(verifierKeyPair)
+        holderAgent.storeCredential(
+            IssuerAgent(
+                RandomKeyPairAdapter(),
+                DummyCredentialDataProvider(),
+            ).issueCredential(
+                holderKeyPair.publicKey,
+                ConstantIndex.AtomicAttribute2023,
+                ConstantIndex.CredentialRepresentation.SD_JWT,
+            ).getOrThrow().toStoreCredentialInput()
+        )
 
         holderSiop = OidcSiopWallet.newDefaultInstance(
+            keyPairAdapter = holderKeyPair,
             holder = holderAgent,
-            cryptoService = holderCryptoService
         )
         verifierSiop = OidcSiopVerifier.newInstance(
             verifier = verifierAgent,
-            cryptoService = verifierCryptoService,
             relyingPartyUrl = null,
             responseUrl = responseUrl,
-            x5c = listOf(verifierCryptoService.certificate!!)
+            x5c = listOf(verifierKeyPair.certificate!!)
         )
     }
 
@@ -76,7 +83,7 @@ class OidcSiopX509SanDnsTest : FreeSpec({
             requestOptions = RequestOptions(
                 representation = ConstantIndex.CredentialRepresentation.SD_JWT,
                 responseMode = OpenIdConstants.ResponseMode.DIRECT_POST_JWT,
-                requestedAttributes = listOf("given-name")
+                requestedAttributes = listOf("given_name")
             )
         ).also { println(it) }.getOrThrow()
 

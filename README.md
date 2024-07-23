@@ -5,34 +5,36 @@
 [![Kotlin](https://img.shields.io/badge/kotlin-multiplatform--mobile-orange.svg?logo=kotlin)](http://kotlinlang.org)
 [![Kotlin](https://img.shields.io/badge/kotlin-2.0.0-blue.svg?logo=kotlin)](http://kotlinlang.org)
 [![Java](https://img.shields.io/badge/java-17-blue.svg?logo=OPENJDK)](https://www.oracle.com/java/technologies/downloads/#java17)
-[![Maven Central](https://img.shields.io/maven-central/v/at.asitplus.wallet/vclib)](https://mvnrepository.com/artifact/at.asitplus.wallet/vclib/)
+[![Maven Central](https://img.shields.io/maven-central/v/at.asitplus.wallet/vclib)](https://mvnrepository.com/artifact/at.asitplus.wallet/vclib)
 
 This library implements verifiable credentials to support several use cases, i.e. issuing of credentials, presentation of credentials and validation thereof. This library may be shared between backend services issuing credentials, wallet apps holding credentials, and verifier apps validating them. 
 
-Credentials may be represented in the [W3C VC Data Model](https://w3c.github.io/vc-data-model/) or as mobile driving licences from [ISO/IEC 18013-5:2021](https://www.iso.org/standard/69084.html). Issuing may happen according to [ARIES RFC 0453 Issue Credential V2](https://github.com/hyperledger/aries-rfcs/tree/main/features/0453-issue-credential-v2) or with [OpenID for Verifiable Credential Issuance](https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0.html). Presentation of credentials may happen according to [ARIES RFC 0454 Present Proof V2](https://github.com/hyperledger/aries-rfcs/tree/main/features/0454-present-proof-v2) or with [Self-Issued OpenID Provider v2](https://openid.net/specs/openid-connect-self-issued-v2-1_0.html).
+Credentials may be represented in the [W3C VC Data Model](https://w3c.github.io/vc-data-model/) or as ISO credentials according to [ISO/IEC 18013-5:2021](https://www.iso.org/standard/69084.html). Issuing may happen according to [ARIES RFC 0453 Issue Credential V2](https://github.com/hyperledger/aries-rfcs/tree/main/features/0453-issue-credential-v2) or with [OpenID for Verifiable Credential Issuance](https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0.html). Presentation of credentials may happen according to [ARIES RFC 0454 Present Proof V2](https://github.com/hyperledger/aries-rfcs/tree/main/features/0454-present-proof-v2) or with [Self-Issued OpenID Provider v2](https://openid.net/specs/openid-connect-self-issued-v2-1_0.html), supporting [OpenID for Verifiable Presentations](https://openid.net/specs/openid-4-verifiable-presentations-1_0.html).
 
 ## Architecture
 
 This library was built with [Kotlin Multiplatform](https://kotlinlang.org/docs/multiplatform.html) and [Multiplatform Mobile](https://kotlinlang.org/lp/mobile/) in mind. Its primary targets are JVM, Android and iOS. In order to achieve smooth usage especially under iOS, there have been some notable design decisions:
 
  - Code interfacing with client implementations uses the return type `KmmResult` to transport the `Success` case (i.e. a custom data type) as well as potential errors from native implementations as a `Failure`.
- - Native implementations can be plugged in by implementing interfaces, e.g. `CryptoService`, as opposed to callback functions.
- - Use of primitive data types for constructor properties instead of e.g. kotlinx datetime types.
+ - Native implementations can be plugged in by implementing interfaces, e.g. `CryptoService` and `KeyPairAdapter`, as opposed to callback functions.
+ - Use of primitive data types for constructor properties instead of e.g. [kotlinx datetime](https://github.com/Kotlin/kotlinx-datetime) types.
  - This library provides some "default" implementations, e.g. `DefaultCryptoService` to test as much code as possible from the `commonMain` module.
  - Some classes feature additional constructors or factory methods with a shorter argument list because the default arguments are lost when called from Swift.
- 
+
 Notable features for multiplatform are:
 
  - Use of [Napier](https://github.com/AAkira/Napier) as the logging framework
  - Use of [Kotest](https://kotest.io/) for unit tests
- - Use of [kotlinx-datetime](https://github.com/Kotlin/kotlinx-datetime) for date classes
- - Use of [kotlinx-serialization](https://github.com/Kotlin/kotlinx.serialization) for serialization from/to JSON and CBOR (extended CBOR functionality in [our fork of kotlinx.serialization](https://github.com/a-sit-plus/kotlinx.serialization/) )
- - Implementation of a BitSet in pure Kotlin, see `KmmBitSet`
+ - Use of [kotlinx-datetime](https://github.com/Kotlin/kotlinx-datetime) for date and time classes
+ - Use of [kotlinx-serialization](https://github.com/Kotlin/kotlinx.serialization) for serialization from/to JSON and CBOR (extended CBOR functionality in [our fork of kotlinx.serialization](https://github.com/a-sit-plus/kotlinx.serialization/))
  - Implementation of a ZLIB service in Kotlin with native parts, see `ZlibService`
  - Implementation of JWS and JWE operations in pure Kotlin (delegating to native crypto), see `JwsService`
  - Abstraction of several cryptographic primitives, to be implemented in native code, see `CryptoService`
  - Implementation of COSE operations in pure Kotlin (delegating to native crypto), see `CoseService`
- - Reimplementation of Kotlin's [Result](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin/-result/) called [KmmResult](https://github.com/a-sit-plus/kmmresult) for easy use from Swift code (since inline classes are [not supported](https://kotlinlang.org/docs/native-objc-interop.html#unsupported))
+
+Some parts for increased multiplatform support have been extracted into separate repositories:
+ - Reimplementation of Kotlin's [Result](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin/-result/) called [KmmResult](https://github.com/a-sit-plus/kmmresult) for easy use from Swift code (since inline classes are [not supported](https://kotlinlang.org/docs/native-objc-interop.html#unsupported)).
+ - Several crypto datatypes including an ASN.1 parser and encoder called [kmp-crypto](https://github.com/a-sit-plus/kmp-crypto).
 
 The main entry point for applications is an instance of `HolderAgent`, `VerifierAgent` or `IssuerAgent`, according to the nomenclature from the [W3C VC Data Model](https://w3c.github.io/vc-data-model/).
 
@@ -40,11 +42,11 @@ Many classes define several constructor parameters, some of them with default va
 
 ### Aries
 
-A single run of an ARIES protocol (for issuing or presentation) is implemented by the `*Protocol` classes, whereas the `*Messenger` classes should be used by applications to manage several runs of a protocol. These classes reside in the artifact `vclib-aries`.
+A single run of an [ARIES protocol](https://github.com/hyperledger/aries-rfcs/blob/main/concepts/0003-protocols/README.md) (for issuing or presentation) is implemented by the `*Protocol` classes, whereas the `*Messenger` classes should be used by applications to manage several runs of a protocol. These classes reside in the artifact `vclib-aries`.
 
 ### OpenId
 
-For SIOPv2 see `OidcSiopProtocol`, and for OpenId4VCI see `at.asitplus.wallet.lib.oidvci.WalletService`. Most code resides in the artifact/subdirectory `vclib-openid`. Both protocols are able to transport W3C credentials (any form) and ISO credentials (mobile driving licence).
+For SIOPv2 see `OidcSiopProtocol`, and for OpenId4VCI see `WalletService`. Most code resides in the artifact/subdirectory `vclib-openid`. Both protocols are able to transport credentials as plain JWTs, SD-JWT or ISO 18013-5.
 
 ## Limitations
 
@@ -60,112 +62,434 @@ The `DefaultCryptoService` for iOS should not be used in production as it does n
 
 ## Credentials
 
-A single credential itself is an instance of `CredentialSubject` and has no special meaning attached to it. This library implements `AtomicAttribute2023` as a trivial sample of a custom credential.
+A single credential itself is an instance of `CredentialSubject` (when using the plain JWT representation with ECDSA signatures) and has no special meaning attached to it. This library implements `AtomicAttribute2023` as a trivial sample of a custom credential. For [Selective Disclosure JWT](https://datatracker.ietf.org/doc/draft-ietf-oauth-selective-disclosure-jwt/) and ISO representations, only the claims (holding names and values) exist, without any data class holding the values.
 
-Other libraries using this library may subclass `CredentialSubject` and call `LibraryInitializer.registerExtensionLibrary()` to register that extension with this library:
+Other libraries using this library may call `LibraryInitializer.registerExtensionLibrary()` to register that extension with this library. See our implementation of the [EU PID credential](https://github.com/a-sit-plus/eu-pid-credential) or our implementation of the [Mobile Driving Licence](https://github.com/a-sit-plus/mobile-driving-licence-credential/) for examples.
 
-```kotlin
-@kotlinx.serialization.Serializable
-@kotlinx.serialization.SerialName("YourCredential2023")
-class YourCredential : at.asitplus.wallet.lib.data.CredentialSubject {
-    // custom properties
-    @SerialName("firstname")
-    val firstname: String
-    
-    constructor(id: String, firstname: String) : super(id = id) {
-        this.firstname = firstname
-    }
-    
-    override fun toString(): String {
-        return "YourCredential(id='$id', firstname='$firstname')"
-    }
-}
+## Dataflow for OID4VCI
 
-at.asitplus.wallet.lib.LibraryInitializer.registerExtensionLibrary(
-    at.asitplus.wallet.lib.LibraryInitializer.ExtensionLibraryInfo(
-        credentialScheme = object : at.asitplus.wallet.lib.data.ConstantIndex.CredentialScheme {
-            override val schemaUri: String = "https://example.com/schemas/1.0.0/yourcredential.json"
-            override val vcType: String = "YourCredential2023"
-            override val isoNamespace: String = "com.example.your-credential"
-            override val isoDocType: String = "com.example.your-credential.iso"
-        },
-        serializersModule = kotlinx.serialization.modules.SerializersModule {
-            kotlinx.serialization.modules.polymorphic(CredentialSubject::class) {
-                kotlinx.serialization.modules.subclass(YourCredential::class)
-            }
-        },
-    )
-)
+We'll present an issuing process according to [OID4VCI](https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0.html), along with [OID4VP](https://openid.net/specs/openid-4-verifiable-presentations-1_0.html), with all terms taken from there.
+
+The credential issuer serves the following metadata: 
+
 ```
-
-### Representation
-
-Credentials in the form of the W3C VC Data Model may be represented as a plain JWT (with simple ECDSA signatures in it), or as a [Selective Disclosure JWT](https://datatracker.ietf.org/doc/draft-ietf-oauth-selective-disclosure-jwt/). See `ConstantIndex.CredentialRepresentation` for the enum class in this library.
-
-#### SD-JWT
-
-To transport the information of SD-JWTs across our several protocols, we came up with the string `jwt_vc_sd` for use in OpenId protocols, see implementation [CredentialFormatEnum](vclib-openid/src/commonMain/kotlin/at/asitplus/wallet/lib/oidvci/CredentialFormatEnum.kt).
-
-We also attach revocation information to the SD-JWT by adding a member called `credentialStatus` to it, same as for a VC represented as a plain JWT.
-
-There are several limitations with our implementation of this early draft of SD-JWT:
- - Only attributes from one credential may be disclosed at once
- - We do not support disclosure of nested structures, i.e. the credential needs to have direct attributes
-
-
-Example from [AgentSdJwtTest](vclib/src/commonTest/kotlin/at/asitplus/wallet/lib/agent/AgentSdJwtTest.kt), where a simple credential with `name`, `value` and `mime-type` (meaning three disclosures) is issued:
-
-```json
-eyJhbGciOiJFUzI1NiIsImtpZCI6ImRpZDprZXk6bUVwRGVlRmc1eXc0cWI0VHA4ek1QN2JlWXBWS2lUMkk2VTZ3TWlYNjl2S0VRWHV0cUx3NXVZaEVMdXhxVVVTRDhNZFR6cEN6emRtS0hoWG5COGZ5Y2tlSUgiLCJ0eXAiOiJqd3QifQ
-.eyJzdWIiOiJkaWQ6a2V5Om1FcENmR0E2NVprMCtHS2pOQUNweGdVOVhSNitza2tpeEdOLzV6RUpjUU0wVkVXbTlFRkJVK0l2dnE1bTdYNHJyKytIa3pqT1Q2N0NreTNZSk42TVA2bEM2IiwibmJmIjoxNjk4MDgyMjEyLCJpc3MiOiJkaWQ6a2V5Om1FcERlZUZnNXl3NHFiNFRwOHpNUDdiZVlwVktpVDJJNlU2d01pWDY5dktFUVh1dHFMdzV1WWhFTHV4cVVVU0Q4TWRUenBDenpkbUtIaFhuQjhmeWNrZUlIIiwiZXhwIjoxNjk4MDgyMjcyLCJqdGkiOiJ1cm46dXVpZDo0YjJjMWNjZC0zYTRhLTQ0OTItODZlZi1hZDM3YWE2MWM2OTYiLCJfc2QiOlsieTFfU3p4NGg0aEh2TG5TMS1pRGtKZ3hOV0x1Z1pFRF93ejhkUER1S2hlUT0iLCJfV0pVSE5EZlIxWkI3YjdJbFVsNl95dkxURlJ5V2JlRENpdDAzNTlXaHlvPSIsIjRNQ192Q1M5WDhpM2UzZzBWN2hpRTk0VHBPTlVoZWdydDJ2Y0VSQ3hzd289Il0sInR5cGUiOlsiVmVyaWZpYWJsZUNyZWRlbnRpYWwiLCJBdG9taWNBdHRyaWJ1dGUyMDIzIl0sIl9zZF9hbGciOiJzaGEtMjU2In0
-.782vK3v64-RWD2NLLRiXkmKTwvcup6-Sph7FLMCjXE6c41E9bWsBTI1ICFo1gC9Igud1mus7Zdphmm5lpxalDw
-~WyJvell4TXVLbkVOZHlHR1MxOThqUDFobWdaUjlMVXhnUHRJb2NUa0xKcG9vIiwibmFtZSIsImdpdmVuLW5hbWUiXQ
-~WyJtY0lMNkxBTmZJbVdIb2FrNFQxNG5PRnV1SUxXY0ZicTJLblo3QmhwMmM4IiwidmFsdWUiLCJTdXNhbm5lIl0
-~WyIxQ1pfTXBFbEVjeFRwaEYtNmxLOHZvZmgtSnJuWkwzS0NWdkxDQXl0eTB3IiwibWltZS10eXBlIiwiYXBwbGljYXRpb24vdGV4dCJd
-```
-
-The JWT payload of the VC has no visible attributes, only the `_sd` entry (parsed from the JWT printed above):
-
-```json
 {
-  "sub": "did:key:mEpCfGA65Zk0+GKjNACpxgU9XR6+skkixGN/5zEJcQM0VEWm9EFBU+Ivvq5m7X4rr++HkzjOT67Cky3YJN6MP6lC6",
-  "nbf": 1698082212,
-  "iss": "did:key:mEpDeeFg5yw4qb4Tp8zMP7beYpVKiT2I6U6wMiX69vKEQXutqLw5uYhELuxqUUSD8MdTzpCzzdmKHhXnB8fyckeIH",
-  "exp": 1698082272,
-  "jti": "urn:uuid:4b2c1ccd-3a4a-4492-86ef-ad37aa61c696",
-  "_sd": [
-    "y1_Szx4h4hHvLnS1-iDkJgxNWLugZED_wz8dPDuKheQ=",
-    "_WJUHNDfR1ZB7b7IlUl6_yvLTFRyWbeDCit0359Whyo=",
-    "4MC_vCS9X8i3e3g0V7hiE94TpONUhegrt2vcERCxswo="
+  "issuer": "https://wallet.a-sit.at/credential-issuer",
+  "credential_issuer": "https://wallet.a-sit.at/credential-issuer",
+  "authorization_servers": [
+    "https://wallet.a-sit.at/authorization-server"
   ],
-  "type": [
-    "VerifiableCredential",
-    "AtomicAttribute2023"
-  ],
-  "_sd_alg": "sha-256"
+  "credential_endpoint": "https://wallet.a-sit.at/credential-issuer/credential",
+  "token_endpoint": "https://wallet.a-sit.at/authorization-server/token",
+  "authorization_endpoint": "https://wallet.a-sit.at/authorization-server/authorize",
+  "credential_identifiers_supported": true,
+  "credential_configurations_supported": {
+    "at.a-sit.wallet.atomic-attribute-2023": {
+      "format": "mso_mdoc",
+      "scope": "at.a-sit.wallet.atomic-attribute-2023",
+      "cryptographic_binding_methods_supported": [
+        "cose_key"
+      ],
+      "credential_signing_alg_values_supported": [
+        "ES256"
+      ],
+      "doctype": "at.a-sit.wallet.atomic-attribute-2023.iso",
+      "claims": {
+        "at.a-sit.wallet.atomic-attribute-2023": {
+          "given_name": {},
+          "family_name": {},
+          "date_of_birth": {}
+        }
+      }
+    },
+    "AtomicAttribute2023#jwt_vc_json": {
+      "format": "jwt_vc_json",
+      "scope": "AtomicAttribute2023",
+      "cryptographic_binding_methods_supported": [
+        "did:key",
+        "urn:ietf:params:oauth:jwk-thumbprint"
+      ],
+      "credential_signing_alg_values_supported": [
+        "ES256"
+      ],
+      "credential_definition": {
+        "type": [
+          "VerifiableCredential",
+          "AtomicAttribute2023"
+        ],
+        "credentialSubject": {
+          "given_name": {},
+          "family_name": {},
+          "date_of_birth": {}
+        }
+      }
+    },
+    "AtomicAttribute2023#vc+sd-jwt": {
+      "format": "vc+sd-jwt",
+      "scope": "AtomicAttribute2023",
+      "cryptographic_binding_methods_supported": [
+        "did:key",
+        "urn:ietf:params:oauth:jwk-thumbprint"
+      ],
+      "credential_signing_alg_values_supported": [
+        "ES256"
+      ],
+      "vct": "AtomicAttribute2023",
+      "claims": {
+        "given_name": {},
+        "family_name": {},
+        "date_of_birth": {}
+      }
+    }
+  }
 }
 ```
 
-The disclosures are stored by the holder to reveal them later on when requested, i.e. for `name` (parsed from the first disclosure printed above):
+The credential issuer starts with a credential offer:
 
-```json
-[
-  "tC93k39JMbjrmJOfQUXhoQpz7Xv7NPjCHOws6dQwrtU", // salt
-  "name",                                        // key
-  "given-name"                                   // value
-]
+```
+{
+  "credential_issuer": "https://wallet.a-sit.at/credential-issuer",
+  "credential_configuration_ids": [
+    "at.a-sit.wallet.atomic-attribute-2023",
+    "AtomicAttribute2023#jwt_vc_json",
+    "AtomicAttribute2023#vc+sd-jwt"
+  ],
+  "grants": {
+    "authorization_code": {
+      "issuer_state": "18136181-97fd-4af9-9e66-85a51cdea269",
+      "authorization_server": "https://wallet.a-sit.at/authorization-server"
+    },
+    "urn:ietf:params:oauth:grant-type:pre-authorized_code": {
+      "pre-authorized_code": "2c74a00b-70b8-4062-9757-75652174bc5d",
+      "authorization_server": "https://wallet.a-sit.at/authorization-server"
+    }
+  }
+}
 ```
 
-The presentation from the holder to the verifier, disclosing the item `name` to have the value `given-name` is the following: the JWT is the same as issued, one disclosure is appended and a key binding JWT to prove possession of the holder key:
+Since the issuer gives an pre-authorized code, the wallet uses this for the token request:
 
-```json
-eyJhbGciOiJFUzI1NiIsImtpZCI6ImRpZDprZXk6bUVwRGVlRmc1eXc0cWI0VHA4ek1QN2JlWXBWS2lUMkk2VTZ3TWlYNjl2S0VRWHV0cUx3NXVZaEVMdXhxVVVTRDhNZFR6cEN6emRtS0hoWG5COGZ5Y2tlSUgiLCJ0eXAiOiJqd3QifQ
-.eyJzdWIiOiJkaWQ6a2V5Om1FcENmR0E2NVprMCtHS2pOQUNweGdVOVhSNitza2tpeEdOLzV6RUpjUU0wVkVXbTlFRkJVK0l2dnE1bTdYNHJyKytIa3pqT1Q2N0NreTNZSk42TVA2bEM2IiwibmJmIjoxNjk4MDgyMjEyLCJpc3MiOiJkaWQ6a2V5Om1FcERlZUZnNXl3NHFiNFRwOHpNUDdiZVlwVktpVDJJNlU2d01pWDY5dktFUVh1dHFMdzV1WWhFTHV4cVVVU0Q4TWRUenBDenpkbUtIaFhuQjhmeWNrZUlIIiwiZXhwIjoxNjk4MDgyMjcyLCJqdGkiOiJ1cm46dXVpZDo0YjJjMWNjZC0zYTRhLTQ0OTItODZlZi1hZDM3YWE2MWM2OTYiLCJfc2QiOlsieTFfU3p4NGg0aEh2TG5TMS1pRGtKZ3hOV0x1Z1pFRF93ejhkUER1S2hlUT0iLCJfV0pVSE5EZlIxWkI3YjdJbFVsNl95dkxURlJ5V2JlRENpdDAzNTlXaHlvPSIsIjRNQ192Q1M5WDhpM2UzZzBWN2hpRTk0VHBPTlVoZWdydDJ2Y0VSQ3hzd289Il0sInR5cGUiOlsiVmVyaWZpYWJsZUNyZWRlbnRpYWwiLCJBdG9taWNBdHRyaWJ1dGUyMDIzIl0sIl9zZF9hbGciOiJzaGEtMjU2In0
-.782vK3v64-RWD2NLLRiXkmKTwvcup6-Sph7FLMCjXE6c41E9bWsBTI1ICFo1gC9Igud1mus7Zdphmm5lpxalDw
-~WyJvell4TXVLbkVOZHlHR1MxOThqUDFobWdaUjlMVXhnUHRJb2NUa0xKcG9vIiwibmFtZSIsImdpdmVuLW5hbWUiXQ
-~eyJhbGciOiJFUzI1NiIsImtpZCI6ImRpZDprZXk6bUVwQ2ZHQTY1WmswK0dLak5BQ3B4Z1U5WFI2K3Nra2l4R04vNXpFSmNRTTBWRVdtOUVGQlUrSXZ2cTVtN1g0cnIrK0hrempPVDY3Q2t5M1lKTjZNUDZsQzYiLCJ0eXAiOiJrYitqd3QifQ
-.eyJpYXQiOjE2OTgwODIyMTMsImF1ZCI6ImRpZDprZXk6bUVwREcwQy9IOUpRRE1za0hreDZ1SW1wajkwRWpEaDlTWkQ0byt1bHRFK3pOeGRpTHc3QzRJSWJsd1ppWlN1Tnl3ekdQOElWR3N6Yk1SNjREMlFRa2dyN2oiLCJub25jZSI6Ijg3YmViMjJjLTNiYzUtNGI1ZC1hZDIwLTFhMTZkY2ViNTZiZiJ9
-.JJ5Y0ZAj44dyPRxbt4K3ws_PKFchcsZUukLRQWbx22KuQUEUQf12r3rgYqsGV3yVmXO-D-NnsaP-1iAmgNy4GQ
+```
+{
+  "grant_type": "urn:ietf:params:oauth:grant-type:pre-authorized_code",
+  "redirect_uri": "https://wallet.a-sit.at/app/callback",
+  "client_id": "https://wallet.a-sit.at/app",
+  "authorization_details": [
+    {
+      "type": "openid_credential",
+      "format": "vc+sd-jwt",
+      "vct": "AtomicAttribute2023"
+    }
+  ],
+  "pre-authorized_code": "2c74a00b-70b8-4062-9757-75652174bc5d"
+}
+```
+
+The credential issuer answers with an access token:
+
+```
+{
+  "access_token": "413ed326-107b-4429-8efa-872cb89949d8",
+  "token_type": "bearer",
+  "expires_in": 3600,
+  "c_nonce": "4fc81553-970e-4765-899f-611d7c4173ae",
+  "authorization_details": []
+}
+```
+
+The wallet creates a credential request, including a proof-of-posession of its private key:
+
+```
+{
+  "format": "vc+sd-jwt",
+  "vct": "AtomicAttribute2023",
+  "proof": {
+    "proof_type": "jwt",
+    "jwt": "eyJ0eXAiOiJvcGVuaWQ0dmNpLXByb29mK2p3dCIsImFsZyI6IkVTMjU2IiwiandrIjp7ImNydiI6IlAtMjU2Iiwia3R5IjoiRUMiLCJ4IjoiS1R2WlRpX28xeTc5REQwSk1IanZyYUpkaXFEWGpNZlZIZVNYemVEVVV4ZyIsInkiOiJiUkZReC1meG9GOURJOTdUWmRQZmNYUXlEY0V0eEQydlNTNWNZMERHYXJZIn19.eyJpc3MiOiJodHRwczovL3dhbGxldC5hLXNpdC5hdC9hcHAiLCJhdWQiOiJodHRwczovL3dhbGxldC5hLXNpdC5hdC9jcmVkZW50aWFsLWlzc3VlciIsIm5vbmNlIjoiNGZjODE1NTMtOTcwZS00NzY1LTg5OWYtNjExZDdjNDE3M2FlIiwiaWF0IjoxNzIwNDIyNTM3fQ.FNM1BCli6pHEXedxRGOmNzxfpsEwQz67onbeQZfRU4tNxEqYauW45MrFkrYsi0Ly7wvfdoPkONZG7s7EmD-vkA"
+  }
+}
+```
+
+The JWT included decodes to the following:
+
+```
+{
+  "typ": "openid4vci-proof+jwt",
+  "alg": "ES256",
+  "jwk": {
+    "crv": "P-256",
+    "kty": "EC",
+    "x": "KTvZTi_o1y79DD0JMHjvraJdiqDXjMfVHeSXzeDUUxg",
+    "y": "bRFQx-fxoF9DI97TZdPfcXQyDcEtxD2vSS5cY0DGarY"
+  }
+}
+.
+{
+  "iss": "https://wallet.a-sit.at/app",
+  "aud": "https://wallet.a-sit.at/credential-issuer",
+  "nonce": "4fc81553-970e-4765-899f-611d7c4173ae",
+  "iat": 1720422537
+}
+```
+
+The credential issuer issues the following credential:
+
+```
+{
+  "format": "vc+sd-jwt",
+  "credential": "eyJraWQiOiJkaWQ6a2V5OnpEbmFleVlrcDlqZ0hjN3lheEcybkZTMXc4MXJISkVyS3hZSkVtTExVRTJVU05wWmUiLCJ0eXAiOiJ2YytzZC1qd3QiLCJhbGciOiJFUzI1NiJ9.eyJzdWIiOiJkaWQ6a2V5OnpEbmFlVEN2aDdZS1N5b21hUnFONFZ3TnZSZFRLdzJBakVkR0VkcndtNHZEUXU5RXciLCJuYmYiOjE3MjA0MjI1MzcsImlzcyI6ImRpZDprZXk6ekRuYWV5WWtwOWpnSGM3eWF4RzJuRlMxdzgxckhKRXJLeFlKRW1MTFVFMlVTTnBaZSIsImV4cCI6MTcyMDQyMjU5NywiaWF0IjoxNzIwNDIyNTM3LCJqdGkiOiJ1cm46dXVpZDpkODE1ZTEwZC1hNDRkLTQxNDQtYmZhNS05Zjk5MTNjZjE5ZmUiLCJfc2QiOlsiaHBNUTFpeWV0cTkzeWVCNG5FZXVmeDYweHY0WTVqbHFWcThIc2tJc1pZMCIsIkFHR1hZRTlIeXF1bGxTSF9iTC02dkRTSEhyZU9HckRWUVVOdEVQM3p1QlEiLCJva2VaSElRQkNQVlVxdUo4VmI3bHd2bWtLWnNmUktKVUE3X0VOMlZjX2M0Il0sInZjdCI6IkF0b21pY0F0dHJpYnV0ZTIwMjMiLCJzdGF0dXMiOnsiaWQiOiJodHRwczovL3dhbGxldC5hLXNpdC5hdC9iYWNrZW5kL2NyZWRlbnRpYWxzL3N0YXR1cy8xIzMiLCJ0eXBlIjoiUmV2b2NhdGlvbkxpc3QyMDIwU3RhdHVzIiwicmV2b2NhdGlvbkxpc3RJbmRleCI6MywicmV2b2NhdGlvbkxpc3RDcmVkZW50aWFsIjoiaHR0cHM6Ly93YWxsZXQuYS1zaXQuYXQvYmFja2VuZC9jcmVkZW50aWFscy9zdGF0dXMvMSJ9LCJfc2RfYWxnIjoic2hhLTI1NiIsImNuZiI6eyJjcnYiOiJQLTI1NiIsImt0eSI6IkVDIiwia2lkIjoidXJuOmlldGY6cGFyYW1zOm9hdXRoOmp3ay10aHVtYnByaW50OnNoYTI1NjpaaC1yNlZsWE5UQUZheTVYVjFzWFpJUG5mZjdHcGVZMFAzTHNPVDJmSFlRPSIsIngiOiJLVHZaVGlfbzF5NzlERDBKTUhqdnJhSmRpcURYak1mVkhlU1h6ZURVVXhnIiwieSI6ImJSRlF4LWZ4b0Y5REk5N1RaZFBmY1hReURjRXR4RDJ2U1M1Y1kwREdhclkifX0.oDdilbVBmoRpy162gcDR8a0vvYHlP7LXvJ3gxmjz4dYKRLhoMwM_tIcu0Dy5_ftXPq5IO1p9GYMkfUhHk881kw~WyI4cWRNYkN6SWZGajQxT1ZVUE13OEI5R2xaN2tiemxxaXg5T1RSU2huWGgwIiwiZ2l2ZW5fbmFtZSIsIkVyaWthIl0~WyIxUDdYQjB5eFFjaVBlZkVrV2o5R2N0MzNUYVZXeGNnVER1N19aTGptWG13IiwiZmFtaWx5X25hbWUiLCJNdXN0ZXJmcmF1Il0~WyJ3a2VlWG4wejAwa2tiaHVaeVBXM2dwZVBpOXhSVWU1cmVrQ3Npc2d6ZXg4Iiwic3ViamVjdCIsInN1YmplY3QiXQ"
+}
+```
+
+The SD-JWT included decodes to the following:
+
+```
+{
+  "kid": "did:key:zDnaeyYkp9jgHc7yaxG2nFS1w81rHJErKxYJEmLLUE2USNpZe",
+  "typ": "vc+sd-jwt",
+  "alg": "ES256"
+}
+.
+{
+  "sub": "did:key:zDnaeTCvh7YKSyomaRqN4VwNvRdTKw2AjEdGEdrwm4vDQu9Ew",
+  "nbf": 1720422537,
+  "iss": "did:key:zDnaeyYkp9jgHc7yaxG2nFS1w81rHJErKxYJEmLLUE2USNpZe",
+  "exp": 1720422597,
+  "iat": 1720422537,
+  "jti": "urn:uuid:d815e10d-a44d-4144-bfa5-9f9913cf19fe",
+  "_sd": [
+    "hpMQ1iyetq93yeB4nEeufx60xv4Y5jlqVq8HskIsZY0",
+    "AGGXYE9HyqullSH_bL-6vDSHHreOGrDVQUNtEP3zuBQ",
+    "okeZHIQBCPVUquJ8Vb7lwvmkKZsfRKJUA7_EN2Vc_c4"
+  ],
+  "vct": "AtomicAttribute2023",
+  "status": {
+    "id": "https://wallet.a-sit.at/backend/credentials/status/1#3",
+    "type": "RevocationList2020Status",
+    "revocationListIndex": 3,
+    "revocationListCredential": "https://wallet.a-sit.at/backend/credentials/status/1"
+  },
+  "_sd_alg": "sha-256",
+  "cnf": {
+    "crv": "P-256",
+    "kty": "EC",
+    "kid": "urn:ietf:params:oauth:jwk-thumbprint:sha256:Zh-r6VlXNTAFay5XV1sXZIPnff7GpeY0P3LsOT2fHYQ=",
+    "x": "KTvZTi_o1y79DD0JMHjvraJdiqDXjMfVHeSXzeDUUxg",
+    "y": "bRFQx-fxoF9DI97TZdPfcXQyDcEtxD2vSS5cY0DGarY"
+  }
+}
+```
+
+with the following claims appended:
+
+```
+["8qdMbCzIfFj41OVUPMw8B9GlZ7kbzlqix9OTRShnXh0","given_name","Erika"]
+```
+
+```
+["1P7XB0yxQciPefEkWj9Gct33TaVWxcgTDu7_ZLjmXmw","family_name","Musterfrau"]
+```
+
+```
+["wkeeXn0z00kkbhuZyPW3gpePi9xRUe5rekCsisgzex8","date_of_birth","1980-01-13"]
+```
+
+
+
+## Dataflow for SIOPv2
+
+We'll present a presentation process according to [SIOPv2](https://openid.net/specs/openid-connect-self-issued-v2-1_0.html), along with [OID4VP](https://openid.net/specs/openid-4-verifiable-presentations-1_0.html), with all terms taken from there.
+
+The verifier creates a URL to be displayet to the wallet, containing a reference to the authentication request itself:
+
+```
+https://wallet.a-sit.at/mobile
+    ?client_id=https://example.com/rp
+    &request_uri=https://example.com/request/15a4e87c-8e3e-4368-87a3-48083bac7232
+```
+
+The authentication request is signed as a JWS and contains the following header and payload:
+
+```
+{
+  "alg": "ES256",
+  "x5c": [
+    "MIIBNDCB2qADAgECAgjm7Gfdm0IFUDAKBggqhkjOPQQDAjASMRAwDgYDVQQDDAdEZWZhdWx0MB4XDTI0MDcxNzEzNTUzMVoXDTI0MDcxNzEzNTYwMVowEjEQMA4GA1UEAwwHRGVmYXVsdDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABCaD9zTN05m6zZSX+QrQzdF4l1Bt3pVSo6VV9VFUSFCkImDkSsyCbgkJoZFkUNObbMiZbccQk6H33HAfxGWpLTyjGjAYMBYGA1UdEQQPMA2CC2V4YW1wbGUuY29tMAoGCCqGSM49BAMCA0kAMEYCIQDSotU4YnsO0Ar5+barXkCn3PQlCaPJEnBwRL60SnHW9wIhAK5mLYgfslZvT5jFmMrS3Ivzm2EpNyjdCPGVT3wpt6/t"
+  ]
+}
+.
+{
+  "response_type": "id_token vp_token",
+  "client_id": "example.com",
+  "scope": "openid profile AtomicAttribute2023 AtomicAttribute2023 at.a-sit.wallet.atomic-attribute-2023",
+  "state": "36efe035-ecf6-4c56-94c8-3dfe167ddaad",
+  "nonce": "148279b8-5222-4db9-bb9b-0614bbe0ef7d",
+  "client_metadata": {
+    "redirect_uris": [
+      "https://example.com/rp"
+    ],
+    "jwks": {
+      "keys": [
+        {
+          "crv": "P-256",
+          "kty": "EC",
+          "x": "JoP3NM3TmbrNlJf5CtDN0XiXUG3elVKjpVX1UVRIUKQ",
+          "y": "ImDkSsyCbgkJoZFkUNObbMiZbccQk6H33HAfxGWpLTw"
+        }
+      ]
+    },
+    "subject_syntax_types_supported": [
+      "urn:ietf:params:oauth:jwk-thumbprint",
+      "did:key"
+    ],
+    "vp_formats": {
+      "jwt_vp": {
+        "alg": [ "ES256", "ES384", "ES512" ]
+      },
+      "vc+sd-jwt": {
+        "alg": [ "ES256", "ES384", "ES512" ]
+      },
+      "mso_mdoc": {
+        "alg": [ "ES256", "ES384", "ES512" ]
+      }
+    }
+  },
+  "id_token_type": "subject_signed_id_token",
+  "presentation_definition": {
+    "id": "b0611eea-89e4-4b78-8f44-40a2cb608d4a",
+    "input_descriptors": [
+      {
+        "id": "9a5511bf-efe4-4ec2-84e5-4cabf1d13000",
+        "schema": [
+          {
+            "uri": "https://wallet.a-sit.at/schemas/1.0.0/AtomicAttribute2023.json"
+          }
+        ],
+        "constraints": {
+          "fields": [
+            {
+              "path": [ "$[\"family_name\"]" ]
+            },
+            {
+              "path": [ "$[\"given_name\"]" ]
+            },
+            {
+              "path": [ "$.vct" ],
+              "filter": {
+                "type": "string",
+                "pattern": "AtomicAttribute2023"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "format": {
+      "vc+sd-jwt": {
+        "alg": [ "ES256", "ES384", "ES512" ]
+      }
+    }
+  },
+  "client_id_scheme": "x509_san_dns",
+  "response_mode": "direct_post",
+  "response_uri": "https://example.com/response",
+  "aud": "https://example.com/rp",
+  "iss": "https://example.com/rp"
+}
+```
+
+The certificate includes the X.509 SAN extension with the value `example.com`.
+
+The wallet posts back the response to `https://example.com/response` with the parameters `presentation_submission`, `vp_token` and `state`.
+
+The value for `presentation_submission` is:
+
+```
+{
+  "id": "be3972bc-18cf-4e24-abf4-fe49eb870bab",
+  "definition_id": "b0611eea-89e4-4b78-8f44-40a2cb608d4a",
+  "descriptor_map": [
+    {
+      "id": "9a5511bf-efe4-4ec2-84e5-4cabf1d13000",
+      "format": "vc+sd-jwt",
+      "path": "$"
+    }
+  ]
+}
+```
+
+The value for `vp_token` is an SD-JWT, with header and payload:
+
+```
+{
+  "kid": "did:key:zDnaezoC5xdfzSdKoCZCZiw52eqnTks3xMKMDRTFKfSiq9obD",
+  "typ": "vc+sd-jwt",
+  "alg": "ES256"
+}
+.
+{
+  "sub": "did:key:zDnaexYu9PCJsDmg7YwyBCJR2qQT8DxqwXhm4BLAJVWUgW1Ms",
+  "nbf": 1721224531,
+  "iss": "did:key:zDnaezoC5xdfzSdKoCZCZiw52eqnTks3xMKMDRTFKfSiq9obD",
+  "exp": 1721224591,
+  "iat": 1721224531,
+  "jti": "urn:uuid:6ed95e4f-83ca-457c-8d8b-bf8bf93ad09e",
+  "_sd": [
+    "0nIEwdknjG7aMeKKiVnJNd7lK-dleq0_RPYc84gDg98",
+    "DZo-dZ4EQTxcekJqJKvhYZySgxodgH1vvT5su__pJlk"
+  ],
+  "vct": "AtomicAttribute2023",
+  "status": {
+    "id": "https://wallet.a-sit.at/backend/credentials/status/1#2",
+    "type": "RevocationList2020Status",
+    "revocationListIndex": 2,
+    "revocationListCredential": "https://wallet.a-sit.at/backend/credentials/status/1"
+  },
+  "_sd_alg": "sha-256",
+  "cnf": {
+    "crv": "P-256",
+    "kty": "EC",
+    "x": "3Tyi-VLN7pmm6kcbRuyD0bYrYllX_cH1fYbf72pNwtI",
+    "y": "6K5c5nYUfRBY3vRo-Q043hr8cFCqYj3iwnxwGFF2Ca8"
+  }
+}
+```
+
+with the following claims appended:
+
+```
+["_bBdCtzFzC1DYL1r6gNq2fZPMvMdR31mo2zp6gq1sZ4","given_name","Susanne"]
+```
+
+```
+["SNDcrxkCBGQrLj0kHiX72Gn4l5dz-sfKo12tbqAoNf8","family_name","Meier"]
+```
+
+```
+["wkeeXn0z00kkbhuZyPW3gpePi9xRUe5rekCsisgzex8","date_of_birth","1990-02-14"]
+```
+
+as well as a key binding (the JWT is decoded):
+
+```
+{
+  "typ": "kb+jwt",
+  "alg": "ES256",
+  "jwk": {
+    "crv": "P-256",
+    "kty": "EC",
+    "x": "3Tyi-VLN7pmm6kcbRuyD0bYrYllX_cH1fYbf72pNwtI",
+    "y": "6K5c5nYUfRBY3vRo-Q043hr8cFCqYj3iwnxwGFF2Ca8"
+  }
+}
+.
+{
+  "iat": 1721224531,
+  "aud": "did:key:zDnaeT2KFSXyCSo3WLjrZeQsNwaCQv2r6bV4bLZNbdhZKhBbh",
+  "nonce": "148279b8-5222-4db9-bb9b-0614bbe0ef7d",
+  "sd_hash": "UkLqyUz3zKR1iMTam7AsP89aEzYvbQqiJ4jfV82A96c"
+}
 ```
 
 <br>

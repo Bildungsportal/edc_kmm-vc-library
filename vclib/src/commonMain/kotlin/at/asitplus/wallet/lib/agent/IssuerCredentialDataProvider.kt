@@ -23,14 +23,13 @@ interface IssuerCredentialDataProvider {
         credentialScheme: ConstantIndex.CredentialScheme,
         representation: ConstantIndex.CredentialRepresentation,
         claimNames: Collection<String>? = null,
-    ): KmmResult<List<CredentialToBeIssued>>
+    ): KmmResult<CredentialToBeIssued>
 }
 
 sealed class CredentialToBeIssued {
     data class VcJwt(
         val subject: CredentialSubject,
         val expiration: Instant,
-        val attachments: List<Issuer.Attachment>? = null
     ) : CredentialToBeIssued()
 
     data class VcSd(

@@ -1,8 +1,10 @@
 package at.asitplus.wallet.lib.agent
 
+import at.asitplus.crypto.datatypes.CryptoPublicKey
 import at.asitplus.crypto.datatypes.jws.JwsSigned
+import at.asitplus.crypto.datatypes.jws.jwkId
+import at.asitplus.crypto.datatypes.jws.toJsonWebKey
 import at.asitplus.wallet.lib.data.IsoDocumentParsed
-import at.asitplus.wallet.lib.data.KeyBindingJws
 import at.asitplus.wallet.lib.data.SelectiveDisclosureItem
 import at.asitplus.wallet.lib.data.VerifiableCredentialJws
 import at.asitplus.wallet.lib.data.VerifiableCredentialSdJwt
@@ -18,10 +20,9 @@ import at.asitplus.wallet.lib.iso.IssuerSigned
 interface Verifier {
 
     /**
-     * The identifier for this agent, typically the `keyId` from the cryptographic key,
-     * e.g. `did:key:mAB...` or `urn:ietf:params:oauth:jwk-thumbprint:sha256:...`
+     * The public key for this agent, i.e. the one used to validate the audience of a VP against
      */
-    val identifier: String
+    val keyPair: KeyPairAdapter
 
     /**
      * Set the revocation list to use for validating VCs (from [Issuer.issueRevocationListCredential])
@@ -79,3 +80,22 @@ interface Verifier {
     }
 
 }
+
+/**
+ * Verifies that [input] is a valid identifier for this key
+ */
+fun CryptoPublicKey.matchesIdentifier(input: String): Boolean {
+    if (jwkId == input)
+        return true
+    if (didEncoded == input)
+        return true
+    if (toJsonWebKey().keyId == input)
+        return true
+    if (toJsonWebKey().jwkThumbprint == input)
+        return true
+    if (toJsonWebKey().didEncoded == input)
+        return true
+    return false
+}
+
+class VerificationError(message: String?): Throwable(message)

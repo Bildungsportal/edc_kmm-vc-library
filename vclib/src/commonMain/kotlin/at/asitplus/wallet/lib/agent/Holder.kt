@@ -1,16 +1,25 @@
 package at.asitplus.wallet.lib.agent
 
 import at.asitplus.KmmResult
+import at.asitplus.jsonpath.core.NodeList
 import at.asitplus.jsonpath.core.NormalizedJsonPath
 import at.asitplus.wallet.lib.data.ConstantIndex
-import at.asitplus.wallet.lib.data.VerifiableCredentialJws
-import at.asitplus.wallet.lib.data.VerifiableCredentialSdJwt
 import at.asitplus.wallet.lib.data.VerifiablePresentation
+import at.asitplus.wallet.lib.data.dif.ConstraintField
 import at.asitplus.wallet.lib.data.dif.FormatHolder
 import at.asitplus.wallet.lib.data.dif.InputDescriptor
 import at.asitplus.wallet.lib.data.dif.PresentationDefinition
 import at.asitplus.wallet.lib.data.dif.PresentationSubmission
 import at.asitplus.wallet.lib.iso.IssuerSigned
+import kotlinx.serialization.Serializable
+
+@Serializable
+data class CredentialSubmission(
+    val credential: SubjectCredentialStore.StoreEntry,
+    val disclosedAttributes: Collection<NormalizedJsonPath>,
+)
+
+typealias InputDescriptorMatches = Map<SubjectCredentialStore.StoreEntry, Map<ConstraintField, NodeList>>
 
 /**
  * Summarizes operations for a Holder in the sense of the [W3C VC Data Model](https://w3c.github.io/vc-data-model/).
@@ -20,12 +29,9 @@ import at.asitplus.wallet.lib.iso.IssuerSigned
 interface Holder {
 
     /**
-     * The identifier for this agent, typically the `keyId` from the cryptographic key,
-     * e.g. `did:key:mAB...` or `urn:ietf:params:oauth:jwk-thumbprint:sha256:...`
+     * The public key for this agent, i.e. the "holder key" that the credentials get bound to.
      */
-    val identifier: String
-
-    val defaultPathAuthorizationValidator: (SubjectCredentialStore.StoreEntry, NormalizedJsonPath) -> Boolean
+    val keyPair: KeyPairAdapter
 
     /**
      * Sets the revocation list ot use for further processing of Verifiable Credentials
@@ -38,7 +44,6 @@ interface Holder {
         data class Vc(
             val vcJws: String,
             val scheme: ConstantIndex.CredentialScheme,
-            val attachments: List<Issuer.Attachment>? = null
         ) : StoreCredentialInput()
 
         data class SdJwt(
@@ -53,41 +58,12 @@ interface Holder {
     }
 
     /**
-     * Stores all verifiable credentials from [credentialList] that parse and validate,
-     * and returns them for future reference.
+     * Stores the verifiable credential in [credential] if it parses and validates,
+     * and returns it for future reference.
      *
      * Note: Revocation credentials should not be stored, but set with [setRevocationList].
      */
-    suspend fun storeCredentials(credentialList: List<StoreCredentialInput>): StoredCredentialsResult
-
-    data class StoredCredentialsResult(
-        val acceptedVcJwt: List<VerifiableCredentialJws> = listOf(),
-        val acceptedSdJwt: List<VerifiableCredentialSdJwt> = listOf(),
-        val acceptedIso: List<IssuerSigned> = listOf(),
-        val rejected: List<String> = listOf(),
-        val notVerified: List<String> = listOf(),
-        val attachments: List<StoredAttachmentResult> = listOf(),
-    )
-
-    data class StoredAttachmentResult(val name: String, val data: ByteArray) {
-        override fun equals(other: Any?): Boolean {
-            if (this === other) return true
-            if (other == null || this::class != other::class) return false
-
-            other as StoredAttachmentResult
-
-            if (name != other.name) return false
-            if (!data.contentEquals(other.data)) return false
-
-            return true
-        }
-
-        override fun hashCode(): Int {
-            var result = name.hashCode()
-            result = 31 * result + data.contentHashCode()
-            return result
-        }
-    }
+    suspend fun storeCredential(credential: StoreCredentialInput): KmmResult<StoredCredential>
 
     /**
      * Gets a list of all stored credentials, with a revocation status.
@@ -132,6 +108,8 @@ interface Holder {
      * Creates an array of [VerifiablePresentation] and a [PresentationSubmission] to match
      * the [presentationDefinition].
      *
+     * Fails in case the default submission is not a valid submission.
+     *
      * @param fallbackFormatHolder: format holder to be used in case there is no format holder in a
      *  given presentation definition and the input descriptor.
      *  This will mostly resolve to be the some clientMetadata.vpFormats
@@ -140,10 +118,30 @@ interface Holder {
      */
     suspend fun createPresentation(
         challenge: String,
+        // TODO Pass a public key adapter here
         audienceId: String,
         presentationDefinition: PresentationDefinition,
         fallbackFormatHolder: FormatHolder? = null,
-        pathAuthorizationValidator: (SubjectCredentialStore.StoreEntry, NormalizedJsonPath) -> Boolean = defaultPathAuthorizationValidator,
+        pathAuthorizationValidator: PathAuthorizationValidator? = null,
+    ): KmmResult<PresentationResponseParameters>
+
+
+    /**
+     * Creates an array of [VerifiablePresentation] and a [PresentationSubmission] from already
+     * preselected [presentationSubmissionSelection].
+     *
+     * Assumptions:
+     *  - the presentation submission selection is a valid submission regarding the submission requirements
+     *
+     * @param presentationDefinitionId: id of the presentation definition this submission is intended for
+     * @param presentationSubmissionSelection: a selection of input descriptors by id and
+     *  corresponding credentials along with a description of the fields to be disclosed
+     */
+    suspend fun createPresentation(
+        challenge: String,
+        audienceId: String,
+        presentationDefinitionId: String?,
+        presentationSubmissionSelection: Map<String, CredentialSubmission>,
     ): KmmResult<PresentationResponseParameters>
 
     /**
@@ -154,13 +152,29 @@ interface Holder {
      *  given presentation definition and the input descriptor.
      *  This will mostly resolve to be the some clientMetadata.vpFormats
      * @param pathAuthorizationValidator: Provides the user of this library with a way to enforce
-     *  authorization rules.
+     *  authorization rules on attribute credentials that are to be disclosed.
      */
     suspend fun matchInputDescriptorsAgainstCredentialStore(
-        presentationDefinition: PresentationDefinition,
+        inputDescriptors: Collection<InputDescriptor>,
         fallbackFormatHolder: FormatHolder? = null,
-        pathAuthorizationValidator: (SubjectCredentialStore.StoreEntry, NormalizedJsonPath) -> Boolean = { _, _ -> true },
-    ): KmmResult<Map<InputDescriptor, HolderAgent.CandidateInputMatchContainer?>>
+        pathAuthorizationValidator: PathAuthorizationValidator? = null,
+    ): KmmResult<Map<String, InputDescriptorMatches>>
+
+    /**
+     * Evaluates a given input descriptor against a store enctry.
+     *
+     * @param fallbackFormatHolder: format holder to be used in case there is no format holder in the input descriptor.
+     *  This will mostly be some presentationDefinition.formats ?: clientMetadata.vpFormats
+     * @param pathAuthorizationValidator: Provides the user of this library with a way to enforce
+     *  authorization rules on attribute credentials that are to be disclosed.
+     * @return for each constraint field a set of matching nodes or null,
+     */
+    fun evaluateInputDescriptorAgainstCredential(
+        inputDescriptor: InputDescriptor,
+        credential: SubjectCredentialStore.StoreEntry,
+        fallbackFormatHolder: FormatHolder?,
+        pathAuthorizationValidator: (NormalizedJsonPath) -> Boolean,
+    ): KmmResult<Map<ConstraintField, NodeList>>
 
     sealed class CreatePresentationResult {
         /**
@@ -181,4 +195,29 @@ interface Holder {
             CreatePresentationResult()
     }
 
+}
+
+fun Map<String, Map<SubjectCredentialStore.StoreEntry, Map<ConstraintField, NodeList>>>.toDefaultSubmission() =
+    mapNotNull { descriptorCredentialMatches ->
+        descriptorCredentialMatches.value.entries.firstNotNullOfOrNull { credentialConstraintFieldMatches ->
+            CredentialSubmission(
+                credential = credentialConstraintFieldMatches.key,
+                disclosedAttributes = credentialConstraintFieldMatches.value.values.mapNotNull {
+                    it.firstOrNull()?.normalizedJsonPath
+                },
+            )
+        }?.let {
+            descriptorCredentialMatches.key to it
+        }
+    }.toMap()
+
+
+/**
+ * Implementations should return true, when the credential attribute may be disclosed to the verifier.
+ */
+typealias PathAuthorizationValidator = (credential: SubjectCredentialStore.StoreEntry, attributePath: NormalizedJsonPath) -> Boolean
+
+open class PresentationException : Exception {
+    constructor(message: String) : super(message)
+    constructor(throwable: Throwable) : super(throwable)
 }

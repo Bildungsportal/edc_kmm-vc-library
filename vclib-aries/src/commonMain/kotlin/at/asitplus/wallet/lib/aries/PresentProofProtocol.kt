@@ -159,7 +159,7 @@ class PresentProofProtocol(
     }
 
     private fun createOobInvitation(): InternalNextMessage {
-        val recipientKey = holder?.identifier
+        val recipientKey = holder?.keyPair?.identifier
             ?: return InternalNextMessage.IncorrectState("holder")
         val message = OutOfBandInvitation(
             body = OutOfBandInvitationBody(
@@ -208,8 +208,7 @@ class PresentProofProtocol(
         credentialScheme: ConstantIndex.CredentialScheme,
         parentThreadId: String? = null,
     ): RequestPresentation? {
-        val verifierIdentifier = verifier?.identifier
-            ?: return null
+        val verifierIdentifier = verifier?.keyPair?.identifier ?: return null
         val claimsConstraints = requestedClaims?.map(this::buildConstraintFieldForClaim) ?: listOf()
         val typeConstraints = buildConstraintFieldForType(credentialScheme.vcType!!)
         val presentationDefinition = PresentationDefinition(
@@ -276,7 +275,7 @@ class PresentProofProtocol(
         // TODO Is ISO supported here?
         val presentationResult = holder?.createPresentation(
             challenge = requestPresentationAttachment.options.challenge,
-            audienceId = requestPresentationAttachment.options.verifier ?: senderKey.identifier,
+            audienceId = requestPresentationAttachment.options.verifier ?: senderKey.didEncoded ?: senderKey.jwkThumbprint,
             presentationDefinition = requestPresentationAttachment.presentationDefinition,
         )?.getOrNull() ?: return problemReporter.problemInternal(lastMessage.threadId, "vp-empty")
         val vp = presentationResult.presentationResults.firstOrNull()

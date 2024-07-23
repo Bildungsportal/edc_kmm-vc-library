@@ -13,6 +13,7 @@ import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeInstanceOf
+import io.ktor.util.*
 import io.matthewnelson.component.base64.decodeBase64ToArray
 import kotlinx.datetime.Clock
 import kotlin.random.Random
@@ -22,19 +23,19 @@ class AgentRevocationTest : FreeSpec({
 
     lateinit var issuerCredentialStore: IssuerCredentialStore
     lateinit var verifier: Verifier
-    lateinit var verifierCryptoService: CryptoService
+    lateinit var verifierKeyPair: KeyPairAdapter
     lateinit var issuer: Issuer
     lateinit var expectedRevokedIndexes: List<Long>
 
     beforeEach {
         issuerCredentialStore = InMemoryIssuerCredentialStore()
-        issuer = IssuerAgent.newDefaultInstance(
-            cryptoService = DefaultCryptoService(),
-            issuerCredentialStore = issuerCredentialStore,
-            dataProvider = DummyCredentialDataProvider()
+        issuer = IssuerAgent(
+            RandomKeyPairAdapter(),
+            issuerCredentialStore,
+            DummyCredentialDataProvider()
         )
-        verifierCryptoService = DefaultCryptoService()
-        verifier = VerifierAgent.newDefaultInstance(verifierCryptoService.publicKey.didEncoded)
+        verifierKeyPair = RandomKeyPairAdapter()
+        verifier = VerifierAgent(verifierKeyPair)
         expectedRevokedIndexes = issuerCredentialStore.revokeRandomCredentials()
     }
 
@@ -55,27 +56,24 @@ class AgentRevocationTest : FreeSpec({
 
     "credentials should contain status information" {
         val result = issuer.issueCredential(
-            subjectPublicKey = verifierCryptoService.publicKey,
-            attributeTypes = listOf(ConstantIndex.AtomicAttribute2023.vcType),
-            representation = ConstantIndex.CredentialRepresentation.PLAIN_JWT
-        )
-        if (result.failed.isNotEmpty()) fail("no issued credentials")
-
-        result.successful.filterIsInstance<Issuer.IssuedCredential.VcJwt>().map { it.vcJws }.forEach {
-            val vcJws = verifier.verifyVcJws(it)
-            vcJws.shouldBeInstanceOf<SuccessJwt>()
-            val credentialStatus = vcJws.jws.vc.credentialStatus
-            credentialStatus.shouldNotBeNull()
-            credentialStatus.index.shouldNotBeNull()
+            verifierKeyPair.publicKey,
+            ConstantIndex.AtomicAttribute2023,
+            ConstantIndex.CredentialRepresentation.PLAIN_JWT,
+        ).getOrElse {
+            fail("no issued credentials")
         }
+        result.shouldBeInstanceOf<Issuer.IssuedCredential.VcJwt>()
+
+        val vcJws = verifier.verifyVcJws(result.vcJws)
+        vcJws.shouldBeInstanceOf<SuccessJwt>()
+        val credentialStatus = vcJws.jws.vc.credentialStatus
+        credentialStatus.shouldNotBeNull()
+        credentialStatus.index.shouldNotBeNull()
     }
 
     "encoding to a known value works" {
         issuerCredentialStore = InMemoryIssuerCredentialStore()
-        issuer = IssuerAgent.newDefaultInstance(
-            cryptoService = DefaultCryptoService(),
-            issuerCredentialStore = issuerCredentialStore,
-        )
+        issuer = IssuerAgent(RandomKeyPairAdapter(), issuerCredentialStore)
         expectedRevokedIndexes = listOf(1, 2, 4, 6, 7, 9, 10, 12, 13, 14)
         issuerCredentialStore.revokeCredentialsWithIndexes(expectedRevokedIndexes)
 
@@ -91,10 +89,7 @@ class AgentRevocationTest : FreeSpec({
 
     "decoding a known value works" {
         issuerCredentialStore = InMemoryIssuerCredentialStore()
-        issuer = IssuerAgent.newDefaultInstance(
-            cryptoService = DefaultCryptoService(),
-            issuerCredentialStore = issuerCredentialStore,
-        )
+        issuer = IssuerAgent(RandomKeyPairAdapter(), issuerCredentialStore)
         expectedRevokedIndexes = listOf(1, 2, 4, 6, 7, 9, 10, 12, 13, 14)
         issuerCredentialStore.revokeCredentialsWithIndexes(expectedRevokedIndexes)
 
@@ -109,7 +104,7 @@ class AgentRevocationTest : FreeSpec({
 })
 
 private fun decodeRevocationList(revocationList: String): BitSet {
-    val decodedBase64 = revocationList.decodeBase64ToArray()
+    val decodedBase64 = revocationList.decodeBase64Bytes()
     decodedBase64.shouldNotBeNull()
     val decompress = DefaultZlibService().decompress(decodedBase64)
     decompress.shouldNotBeNull()
@@ -133,7 +128,7 @@ private fun IssuerCredentialStore.revokeCredentialsWithIndexes(revokedIndexes: L
         val vcId = uuid4().toString()
         val revListIndex = storeGetNextIndex(
             credential = IssuerCredentialStore.Credential.VcJwt(vcId, cred, ConstantIndex.AtomicAttribute2023),
-            subjectPublicKey = DefaultCryptoService().publicKey,
+            subjectPublicKey = RandomKeyPairAdapter().publicKey,
             issuanceDate = issuanceDate,
             expirationDate = expirationDate,
             timePeriod = FixedTimePeriodProvider.timePeriod
@@ -153,7 +148,7 @@ private fun IssuerCredentialStore.revokeRandomCredentials(): MutableList<Long> {
         val vcId = uuid4().toString()
         val revListIndex = storeGetNextIndex(
             credential = IssuerCredentialStore.Credential.VcJwt(vcId, cred, ConstantIndex.AtomicAttribute2023),
-            subjectPublicKey = DefaultCryptoService().publicKey,
+            subjectPublicKey = RandomKeyPairAdapter().publicKey,
             issuanceDate = issuanceDate,
             expirationDate = expirationDate,
             timePeriod = FixedTimePeriodProvider.timePeriod

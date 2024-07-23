@@ -1,12 +1,13 @@
 package at.asitplus.wallet.lib.oidc
 
-import at.asitplus.wallet.lib.agent.CryptoService
-import at.asitplus.wallet.lib.agent.DefaultCryptoService
 import at.asitplus.wallet.lib.agent.Holder
 import at.asitplus.wallet.lib.agent.HolderAgent
 import at.asitplus.wallet.lib.agent.IssuerAgent
+import at.asitplus.wallet.lib.agent.KeyPairAdapter
+import at.asitplus.wallet.lib.agent.RandomKeyPairAdapter
 import at.asitplus.wallet.lib.agent.Verifier
 import at.asitplus.wallet.lib.agent.VerifierAgent
+import at.asitplus.wallet.lib.agent.toStoreCredentialInput
 import at.asitplus.wallet.lib.data.ConstantIndex
 import at.asitplus.wallet.lib.data.IsoDocumentParsed
 import at.asitplus.wallet.lib.oidvci.formUrlEncode
@@ -19,7 +20,6 @@ import io.kotest.matchers.collections.shouldBeSingleton
 import io.kotest.matchers.collections.shouldHaveSingleElement
 import io.kotest.matchers.collections.shouldNotBeEmpty
 import io.kotest.matchers.types.shouldBeInstanceOf
-import kotlinx.coroutines.runBlocking
 
 @Suppress("unused")
 class OidcSiopIsoProtocolTest : FreeSpec({
@@ -27,8 +27,8 @@ class OidcSiopIsoProtocolTest : FreeSpec({
     lateinit var relyingPartyUrl: String
     lateinit var walletUrl: String
 
-    lateinit var holderCryptoService: CryptoService
-    lateinit var verifierCryptoService: CryptoService
+    lateinit var holderKeyPair: KeyPairAdapter
+    lateinit var verifierKeyPair: KeyPairAdapter
 
     lateinit var holderAgent: Holder
     lateinit var verifierAgent: Verifier
@@ -37,43 +37,42 @@ class OidcSiopIsoProtocolTest : FreeSpec({
     lateinit var verifierSiop: OidcSiopVerifier
 
     beforeEach {
-        holderCryptoService = DefaultCryptoService()
-        verifierCryptoService = DefaultCryptoService()
+        holderKeyPair = RandomKeyPairAdapter()
+        verifierKeyPair = RandomKeyPairAdapter()
         relyingPartyUrl = "https://example.com/rp/${uuid4()}"
         walletUrl = "https://example.com/wallet/${uuid4()}"
-        holderAgent = HolderAgent.newDefaultInstance(holderCryptoService)
-        verifierAgent = VerifierAgent.newDefaultInstance(verifierCryptoService.publicKey.didEncoded)
-        runBlocking {
-            val issuerAgent = IssuerAgent.newDefaultInstance(
-                DefaultCryptoService(),
-                dataProvider = DummyCredentialDataProvider(),
-            )
-            holderAgent.storeCredentials(
-                issuerAgent.issueCredential(
-                    subjectPublicKey = holderCryptoService.publicKey,
-                    attributeTypes = listOf(MobileDrivingLicenceScheme.isoNamespace),
-                    representation = ConstantIndex.CredentialRepresentation.ISO_MDOC
-                ).toStoreCredentialInput()
-            )
-            holderAgent.storeCredentials(
-                issuerAgent.issueCredential(
-                    subjectPublicKey = holderCryptoService.publicKey,
-                    attributeTypes = listOf(ConstantIndex.AtomicAttribute2023.vcType),
-                    representation = ConstantIndex.CredentialRepresentation.ISO_MDOC
-                ).toStoreCredentialInput()
-            )
-        }
+        holderAgent = HolderAgent(holderKeyPair)
+        verifierAgent = VerifierAgent(verifierKeyPair)
+
+        val issuerAgent = IssuerAgent(
+            RandomKeyPairAdapter(),
+            DummyCredentialDataProvider(),
+        )
+        holderAgent.storeCredential(
+            issuerAgent.issueCredential(
+                holderKeyPair.publicKey,
+                MobileDrivingLicenceScheme,
+                ConstantIndex.CredentialRepresentation.ISO_MDOC,
+            ).getOrThrow().toStoreCredentialInput()
+        )
+        holderAgent.storeCredential(
+            issuerAgent.issueCredential(
+                holderKeyPair.publicKey,
+                ConstantIndex.AtomicAttribute2023,
+                ConstantIndex.CredentialRepresentation.ISO_MDOC,
+            ).getOrThrow().toStoreCredentialInput()
+        )
+
 
         holderSiop = OidcSiopWallet.newDefaultInstance(
+            keyPairAdapter = holderKeyPair,
             holder = holderAgent,
-            cryptoService = holderCryptoService
         )
     }
 
     "test with Fragment for mDL" {
         verifierSiop = OidcSiopVerifier.newInstance(
             verifier = verifierAgent,
-            cryptoService = verifierCryptoService,
             relyingPartyUrl = relyingPartyUrl,
         )
         val document = runProcess(
@@ -96,7 +95,6 @@ class OidcSiopIsoProtocolTest : FreeSpec({
     "test with Fragment for custom attributes" {
         verifierSiop = OidcSiopVerifier.newInstance(
             verifier = verifierAgent,
-            cryptoService = verifierCryptoService,
             relyingPartyUrl = relyingPartyUrl,
         )
         val document = runProcess(
@@ -105,7 +103,7 @@ class OidcSiopIsoProtocolTest : FreeSpec({
             OidcSiopVerifier.RequestOptions(
                 representation = ConstantIndex.CredentialRepresentation.ISO_MDOC,
                 credentialScheme = ConstantIndex.AtomicAttribute2023,
-                requestedAttributes = listOf("given-name"),
+                requestedAttributes = listOf("given_name"),
             ),
             holderSiop
         )
@@ -118,7 +116,6 @@ class OidcSiopIsoProtocolTest : FreeSpec({
         val requestedClaim = MobileDrivingLicenceDataElements.FAMILY_NAME
         verifierSiop = OidcSiopVerifier.newInstance(
             verifier = verifierAgent,
-            cryptoService = verifierCryptoService,
             relyingPartyUrl = relyingPartyUrl,
         )
         val document = runProcess(
@@ -142,7 +139,6 @@ class OidcSiopIsoProtocolTest : FreeSpec({
         val requestedClaim = MobileDrivingLicenceDataElements.FAMILY_NAME
         verifierSiop = OidcSiopVerifier.newInstance(
             verifier = verifierAgent,
-            cryptoService = verifierCryptoService,
             relyingPartyUrl = relyingPartyUrl,
             responseUrl = relyingPartyUrl + "/${uuid4()}"
         )
@@ -175,7 +171,6 @@ class OidcSiopIsoProtocolTest : FreeSpec({
     "Selective Disclosure with mDL JSON Path syntax" {
         verifierSiop = OidcSiopVerifier.newInstance(
             verifier = verifierAgent,
-            cryptoService = verifierCryptoService,
             relyingPartyUrl = relyingPartyUrl,
         )
         val document = runProcess(

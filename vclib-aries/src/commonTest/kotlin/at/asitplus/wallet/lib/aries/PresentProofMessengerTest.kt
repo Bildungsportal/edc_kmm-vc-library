@@ -16,9 +16,9 @@ import kotlin.time.toDuration
 
 class PresentProofMessengerTest : FreeSpec() {
 
-    private lateinit var holderCryptoService: CryptoService
-    private lateinit var verifierCryptoService: CryptoService
-    private lateinit var issuerCryptoService: CryptoService
+    private lateinit var holderKeyPair: KeyPairAdapter
+    private lateinit var verifierKeyPair: KeyPairAdapter
+    private lateinit var issuerKeyPair: KeyPairAdapter
     private lateinit var holderCredentialStore: SubjectCredentialStore
     private lateinit var holder: Holder
     private lateinit var verifier: Verifier
@@ -30,34 +30,34 @@ class PresentProofMessengerTest : FreeSpec() {
     init {
 
         beforeEach {
-            holderCryptoService = DefaultCryptoService()
-            verifierCryptoService = DefaultCryptoService()
-            issuerCryptoService = DefaultCryptoService()
+            holderKeyPair = RandomKeyPairAdapter()
+            verifierKeyPair = RandomKeyPairAdapter()
+            issuerKeyPair = RandomKeyPairAdapter()
             holderCredentialStore = InMemorySubjectCredentialStore()
-            holder = HolderAgent.newDefaultInstance(holderCryptoService, subjectCredentialStore = holderCredentialStore)
-            verifier = VerifierAgent.newDefaultInstance(verifierCryptoService.publicKey.didEncoded)
-            issuer = IssuerAgent.newDefaultInstance(issuerCryptoService, dataProvider = DummyCredentialDataProvider())
+            holder = HolderAgent(holderKeyPair, holderCredentialStore)
+            verifier = VerifierAgent(verifierKeyPair)
+            issuer = IssuerAgent(issuerKeyPair, DummyCredentialDataProvider())
             verifierChallenge = uuid4().toString()
             holderServiceEndpoint = "https://example.com/present-proof?${uuid4()}"
         }
 
         "presentProof" {
-            holder.storeCredentials(
+            holder.storeCredential(
                 issuer.issueCredential(
-                    holderCryptoService.publicKey,
-                    listOf(ConstantIndex.AtomicAttribute2023.vcType),
+                    holderKeyPair.publicKey,
+                    ConstantIndex.AtomicAttribute2023,
                     ConstantIndex.CredentialRepresentation.PLAIN_JWT
-                ).toStoreCredentialInput()
+                ).getOrThrow().toStoreCredentialInput()
             )
             val holderMessenger = PresentProofMessenger.newHolderInstance(
                 holder = holder,
-                messageWrapper = MessageWrapper(holderCryptoService),
+                messageWrapper = MessageWrapper(holderKeyPair),
                 serviceEndpoint = holderServiceEndpoint,
                 credentialScheme = ConstantIndex.AtomicAttribute2023,
             )
             val verifierMessenger = PresentProofMessenger.newVerifierInstance(
                 verifier = verifier,
-                messageWrapper = MessageWrapper(verifierCryptoService),
+                messageWrapper = MessageWrapper(verifierKeyPair),
                 credentialScheme = ConstantIndex.AtomicAttribute2023,
             )
 
@@ -84,11 +84,11 @@ class PresentProofMessengerTest : FreeSpec() {
 
         "selectiveDisclosure" {
             val issuedCredential = issuer.issueCredential(
-                holderCryptoService.publicKey,
-                listOf(ConstantIndex.AtomicAttribute2023.vcType),
+                holderKeyPair.publicKey,
+                ConstantIndex.AtomicAttribute2023,
                 ConstantIndex.CredentialRepresentation.PLAIN_JWT
-            )
-            holder.storeCredentials(issuedCredential.toStoreCredentialInput())
+            ).getOrThrow()
+            holder.storeCredential(issuedCredential.toStoreCredentialInput())
             val expectedSubject = holderCredentialStore.getCredentials().getOrThrow().first()
                     as SubjectCredentialStore.StoreEntry.Vc
             val subject = expectedSubject.vc.vc.credentialSubject as AtomicAttribute2023
@@ -97,13 +97,13 @@ class PresentProofMessengerTest : FreeSpec() {
 
             val holderMessenger = PresentProofMessenger.newHolderInstance(
                 holder = holder,
-                messageWrapper = MessageWrapper(holderCryptoService),
+                messageWrapper = MessageWrapper(holderKeyPair),
                 serviceEndpoint = "https://example.com",
                 credentialScheme = ConstantIndex.AtomicAttribute2023,
             )
             val verifierMessenger = PresentProofMessenger.newVerifierInstance(
                 verifier = verifier,
-                messageWrapper = MessageWrapper(verifierCryptoService),
+                messageWrapper = MessageWrapper(verifierKeyPair),
                 challengeForPresentation = verifierChallenge,
                 credentialScheme = ConstantIndex.AtomicAttribute2023,
                 requestedClaims = listOf(attributeName)

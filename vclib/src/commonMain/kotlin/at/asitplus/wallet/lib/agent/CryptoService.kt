@@ -3,13 +3,14 @@
 package at.asitplus.wallet.lib.agent
 
 import at.asitplus.KmmResult
-import at.asitplus.crypto.datatypes.*
-import at.asitplus.crypto.datatypes.cose.CoseKey
+import at.asitplus.crypto.datatypes.CryptoPublicKey
+import at.asitplus.crypto.datatypes.CryptoSignature
+import at.asitplus.crypto.datatypes.Digest
+import at.asitplus.crypto.datatypes.ECCurve
+import at.asitplus.crypto.datatypes.X509SignatureAlgorithm
 import at.asitplus.crypto.datatypes.jws.JsonWebKey
 import at.asitplus.crypto.datatypes.jws.JweAlgorithm
 import at.asitplus.crypto.datatypes.jws.JweEncryption
-import at.asitplus.crypto.datatypes.pki.X509Certificate
-import at.asitplus.crypto.datatypes.pki.X509CertificateExtension
 
 interface CryptoService {
 
@@ -18,7 +19,7 @@ interface CryptoService {
             when (it) {
                 is CryptoSignature.RawByteEncodable -> it
                 is CryptoSignature.NotRawByteEncodable -> when (it) {
-                    is CryptoSignature.EC.IndefiniteLength -> it.withCurve((publicKey as CryptoPublicKey.EC).curve)
+                    is CryptoSignature.EC.IndefiniteLength -> it.withCurve((keyPairAdapter.publicKey as CryptoPublicKey.EC).curve)
                 }
             }
     }
@@ -54,19 +55,7 @@ interface CryptoService {
 
     fun messageDigest(input: ByteArray, digest: Digest): KmmResult<ByteArray>
 
-    val algorithm: CryptoAlgorithm
-
-    val publicKey: CryptoPublicKey
-
-    val jsonWebKey: JsonWebKey
-
-    val coseKey: CoseKey
-
-    /**
-     * May be used in [at.asitplus.wallet.lib.cbor.CoseService] to transport the signing key for a COSE structure.
-     * a `null` value signifies that raw public keys are used and no certificate is present
-     */
-    val certificate: X509Certificate?
+    val keyPairAdapter: KeyPairAdapter
 
 }
 
@@ -75,12 +64,12 @@ interface VerifierCryptoService {
     /**
      * List of algorithms, for which signatures can be verified in [verify].
      */
-    val supportedAlgorithms: List<CryptoAlgorithm>
+    val supportedAlgorithms: List<X509SignatureAlgorithm>
 
     fun verify(
         input: ByteArray,
         signature: CryptoSignature,
-        algorithm: CryptoAlgorithm,
+        algorithm: X509SignatureAlgorithm,
         publicKey: CryptoPublicKey,
     ): KmmResult<Boolean>
 
@@ -111,7 +100,7 @@ interface EphemeralKeyHolder {
     val publicJsonWebKey: JsonWebKey?
 }
 
-expect class DefaultCryptoService() : CryptoService {
+expect class DefaultCryptoService : CryptoService {
     override suspend fun doSign(input: ByteArray): KmmResult<CryptoSignature>
     override fun encrypt(
         key: ByteArray,
@@ -147,25 +136,16 @@ expect class DefaultCryptoService() : CryptoService {
         digest: Digest
     ): KmmResult<ByteArray>
 
-    override val algorithm: CryptoAlgorithm
-    override val publicKey: CryptoPublicKey
-    override val jsonWebKey: JsonWebKey
-    override val coseKey: CoseKey
-    override val certificate: X509Certificate?
-
-    companion object {
-        fun withSelfSignedCert(
-            extensions: List<X509CertificateExtension> = listOf()
-        ): CryptoService
-    }
+    override val keyPairAdapter: KeyPairAdapter
+    constructor(keyPairAdapter: KeyPairAdapter)
 }
 
 expect class DefaultVerifierCryptoService() : VerifierCryptoService {
-    override val supportedAlgorithms: List<CryptoAlgorithm>
+    override val supportedAlgorithms: List<X509SignatureAlgorithm>
     override fun verify(
         input: ByteArray,
         signature: CryptoSignature,
-        algorithm: CryptoAlgorithm,
+        algorithm: X509SignatureAlgorithm,
         publicKey: CryptoPublicKey
     ): KmmResult<Boolean>
 }

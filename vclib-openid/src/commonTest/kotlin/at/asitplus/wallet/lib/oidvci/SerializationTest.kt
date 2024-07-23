@@ -3,6 +3,7 @@ package at.asitplus.wallet.lib.oidvci
 import at.asitplus.wallet.lib.data.VcDataModelConstants.VERIFIABLE_CREDENTIAL
 import at.asitplus.wallet.lib.oidc.AuthenticationRequestParameters
 import at.asitplus.wallet.lib.oidc.OpenIdConstants
+import at.asitplus.wallet.lib.oidc.OpenIdConstants.GRANT_TYPE_AUTHORIZATION_CODE
 import at.asitplus.wallet.lib.oidc.OpenIdConstants.GRANT_TYPE_CODE
 import at.asitplus.wallet.lib.oidc.OpenIdConstants.TOKEN_TYPE_BEARER
 import at.asitplus.wallet.lib.oidc.jsonSerializer
@@ -19,11 +20,13 @@ class SerializationTest : FunSpec({
     fun createAuthorizationRequest() = AuthenticationRequestParameters(
         responseType = GRANT_TYPE_CODE,
         clientId = randomString(),
-        authorizationDetails = AuthorizationDetails(
-            type = randomString(),
-            format = CredentialFormatEnum.JWT_VC,
-            credentialDefinition = SupportedCredentialFormatDefinition(
-                types = listOf(VERIFIABLE_CREDENTIAL, randomString()),
+        authorizationDetails = setOf(
+            AuthorizationDetails(
+                type = randomString(),
+                format = CredentialFormatEnum.JWT_VC,
+                credentialDefinition = SupportedCredentialFormatDefinition(
+                    types = listOf(VERIFIABLE_CREDENTIAL, randomString()),
+                )
             )
         ),
         redirectUrl = randomString(),
@@ -34,7 +37,7 @@ class SerializationTest : FunSpec({
     )
 
     fun createTokenRequest() = TokenRequestParameters(
-        grantType = GRANT_TYPE_CODE,
+        grantType = GRANT_TYPE_AUTHORIZATION_CODE,
         code = randomString(),
         redirectUrl = "https://wallet.a-sit.at/app/${randomString()}",
         clientId = randomString(),
@@ -95,7 +98,7 @@ class SerializationTest : FunSpec({
         println(formEncoded)
         formEncoded shouldContain "response_type=${params.responseType}"
         formEncoded shouldContain "client_id=${params.clientId}"
-        formEncoded shouldContain "authorization_details=" + "{\"type\":".encodeURLParameter()
+        formEncoded shouldContain "authorization_details=" + "[{\"type\":".encodeURLParameter()
         val parsed: AuthenticationRequestParameters = intermediateMap.decode()
         parsed shouldBe params
         val parsedToo: AuthenticationRequestParameters = formEncoded.decodeFromPostBody()

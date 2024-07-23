@@ -1,5 +1,37 @@
 # Changelog
 
+Release 4.0.0:
+ - Add `SubmissionRequirement.evaluate`: Evaluates, whether a given submission requirement is satisfied.
+ - Add `PresentationSubmissionValidator`: 
+   - Add `isValidSubmission`: Evaluates, whether all submission requirements is satisfied, and fails on redundantly submitted credentials.
+   - Add `findUnnecessaryInputDescriptorSubmissions`: Returns a list of redundantly submitted credentials.
+ - Rename `BaseInputEvaluator` -> `InputEvaluator`
+   - Change `evaluateFieldQueryResults` -> `evaluateConstraintFieldMatches`: Returns all matching fields now, not just the first match
+ - Change `Holder.matchInputDescriptorsAgainstCredentialStore`: Returns all matching credentials now, not just the first match
+ - Do not use or assume DID as key identifiers and subjects in credentials
+ - Replace list of attribute types in `Issuer.issueCredentials` with one concrete `CredentialScheme` to be passed
+ - Remove functionality related to "attachments" to verifable credentials in JWT format
+ - Replace list of credentials to be issued with a single credential that will be issued per call to implementations of `IssuerCredentialDataProvider`
+ - Get rid of class `Issuer.IssuedCredentialResult`, replacing it with `KmmResult<Issuer.IssuedCredential>`
+ - Add return types to function calls to `SubjectCredentialStore`
+ - Change from list to single credential in parameter for `Holder.storeCredentials()`, changing name to `storeCredential()`
+ - Refactor `AuthenticationRequestParametersFrom` used in `OidcSiopWallet` to be serializable
+ - Add `AuthenticationResponseFactory`: Builds an authentication response from request and response parameters
+ - Change `OidcSiopWallet`: 
+   - Add `startAuthorizationResponsePreparation()`: Gathers data necessary for presentation building and yields a `AuthorizationResponsePreparationState`
+   - Add `finalizeAuthorizationResponseParameters()`: Returns what `createAuthenticationParams` returned before, but also takes in `AuthorizationResponsePreparationState` and an optional non-default submission
+   - Add `finalizeAuthorizationResponse()`: Returns what `createAuthenticationResponse()` did before
+ - Change `OidcSiopVerifier`:
+   - Add `createAuthnRequestUrlWithRequestObjectByReference()` to offer authentication requests by reference to the Wallet
+ - Add `AuthorizationResponsePreparationState`: Holds data necessary for presentation building
+ - Add `AuthenticationRequestParser`: Extracted presentation request parsing logic from `OidcSiopWallet` and put it here
+ - Add `AuthorizationRequestValidator`: Extracted presentation request validation logic from `OidcSiopWallet` and put it here
+ - Add `PresentationFactory`: Extracted presentation response building logic from `OidcSiopWallet` and put it here
+   - Also added some code for presentation submission validation
+ - Update implementation of OpenID 4 Verifiable Credential Issuance, draft 13
+ - Replace `createCredentialRequestJwt()` and `createCredentialRequestCwt()` with `createCredentialRequest()` in `WalletService` for OID4VCI
+ - Refactor `createTokenRequestParameters()` in `WalletService` for OID4VCI to account for authorization code or pre-auth code
+
 Release 3.8.0:
  - Kotlin 2.0.0
  - Gradle 8.8

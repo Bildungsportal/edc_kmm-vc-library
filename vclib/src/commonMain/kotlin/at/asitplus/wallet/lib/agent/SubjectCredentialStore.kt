@@ -26,7 +26,7 @@ interface SubjectCredentialStore {
         vc: VerifiableCredentialJws,
         vcSerialized: String,
         scheme: ConstantIndex.CredentialScheme,
-    )
+    ) : StoreEntry
 
     /**
      * Implementations should store the passed credential in a secure way.
@@ -40,7 +40,7 @@ interface SubjectCredentialStore {
         vcSerialized: String,
         disclosures: Map<String, SelectiveDisclosureItem?>,
         scheme: ConstantIndex.CredentialScheme,
-    )
+    ) : StoreEntry
 
     /**
      * Implementations should store the passed credential in a secure way.
@@ -51,17 +51,7 @@ interface SubjectCredentialStore {
     suspend fun storeCredential(
         issuerSigned: IssuerSigned,
         scheme: ConstantIndex.CredentialScheme,
-    )
-
-    /**
-     * Implementation should store the attachment in a secure way.
-     * Note that the data has not been validated since it may not be signed.
-     *
-     * @param name Name of the Attachment
-     * @param data Data of the Attachment (a binary blob)
-     * @param vcId ID of the VC to this Attachment (see [VerifiableCredential.id])
-     */
-    suspend fun storeAttachment(name: String, data: ByteArray, vcId: String)
+    ) : StoreEntry
 
     /**
      * Return all stored credentials.
@@ -70,17 +60,10 @@ interface SubjectCredentialStore {
     suspend fun getCredentials(credentialSchemes: Collection<ConstantIndex.CredentialScheme>? = null)
             : KmmResult<List<StoreEntry>>
 
-    /**
-     * Return attachments filtered by [name]
-     */
-    suspend fun getAttachment(name: String): KmmResult<ByteArray>
+    @Serializable
+    sealed interface StoreEntry {
+        val scheme: ConstantIndex.CredentialScheme
 
-    /**
-     * Return attachments filtered by [name] and [vcId]
-     */
-    suspend fun getAttachment(name: String, vcId: String): KmmResult<ByteArray>
-
-    sealed class StoreEntry {
         @Serializable
         data class Vc(
             @SerialName("vc-serialized")
@@ -88,8 +71,8 @@ interface SubjectCredentialStore {
             @SerialName("vc")
             val vc: VerifiableCredentialJws,
             @SerialName("scheme")
-            val scheme: ConstantIndex.CredentialScheme
-        ) : StoreEntry()
+            override val scheme: ConstantIndex.CredentialScheme
+        ) : StoreEntry
 
         @Serializable
         data class SdJwt(
@@ -103,38 +86,16 @@ interface SubjectCredentialStore {
             @SerialName("disclosures")
             val disclosures: Map<String, SelectiveDisclosureItem?>,
             @SerialName("scheme")
-            val scheme: ConstantIndex.CredentialScheme
-        ) : StoreEntry()
+            override val scheme: ConstantIndex.CredentialScheme
+        ) : StoreEntry
 
         @Serializable
         data class Iso(
             @SerialName("issuer-signed")
             val issuerSigned: IssuerSigned,
             @SerialName("scheme")
-            val scheme: ConstantIndex.CredentialScheme
-        ) : StoreEntry()
-    }
-
-    data class AttachmentEntry(val name: String, val data: ByteArray, val vcId: String) {
-        override fun equals(other: Any?): Boolean {
-            if (this === other) return true
-            if (other == null || this::class != other::class) return false
-
-            other as AttachmentEntry
-
-            if (name != other.name) return false
-            if (!data.contentEquals(other.data)) return false
-            if (vcId != other.vcId) return false
-
-            return true
-        }
-
-        override fun hashCode(): Int {
-            var result = name.hashCode()
-            result = 31 * result + data.contentHashCode()
-            result = 31 * result + vcId.hashCode()
-            return result
-        }
+            override val scheme: ConstantIndex.CredentialScheme
+        ) : StoreEntry
     }
 
 }

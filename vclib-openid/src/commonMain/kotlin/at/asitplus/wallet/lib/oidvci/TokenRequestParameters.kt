@@ -1,7 +1,11 @@
 package at.asitplus.wallet.lib.oidvci
 
+import at.asitplus.KmmResult
+import at.asitplus.KmmResult.Companion.wrap
+import at.asitplus.wallet.lib.oidc.jsonSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
 
 @Serializable
 data class TokenRequestParameters(
@@ -39,7 +43,7 @@ data class TokenRequestParameters(
      * RFC9396
      */
     @SerialName("authorization_details")
-    val authorizationDetails: AuthorizationDetails? = null,
+    val authorizationDetails: Set<AuthorizationDetails>? = null,
 
     /**
      * OID4VCI: The code representing the authorization to obtain Credentials of a certain type.
@@ -62,4 +66,12 @@ data class TokenRequestParameters(
      */
     @SerialName("code_verifier")
     val codeVerifier: String? = null,
-)
+) {
+
+    fun serialize() = jsonSerializer.encodeToString(this)
+
+    companion object {
+        fun deserialize(input: String): KmmResult<TokenRequestParameters> =
+            runCatching { jsonSerializer.decodeFromString<TokenRequestParameters>(input) }.wrap()
+    }
+}

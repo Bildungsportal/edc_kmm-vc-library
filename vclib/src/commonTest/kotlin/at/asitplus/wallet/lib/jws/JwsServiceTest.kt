@@ -10,6 +10,7 @@ import at.asitplus.crypto.datatypes.jws.JwsHeader
 import at.asitplus.crypto.datatypes.jws.JwsSigned
 import at.asitplus.wallet.lib.agent.CryptoService
 import at.asitplus.wallet.lib.agent.DefaultCryptoService
+import at.asitplus.wallet.lib.agent.RandomKeyPairAdapter
 import at.asitplus.wallet.lib.data.jsonSerializer
 import com.benasher44.uuid.uuid4
 import io.kotest.core.spec.style.FreeSpec
@@ -28,7 +29,7 @@ class JwsServiceTest : FreeSpec({
     lateinit var randomPayload: String
 
     beforeEach {
-        cryptoService = DefaultCryptoService()
+        cryptoService = DefaultCryptoService(RandomKeyPairAdapter())
         jwsService = DefaultJwsService(cryptoService)
         verifierJwsService = DefaultVerifierJwsService()
         randomPayload = uuid4().toString()
@@ -74,7 +75,7 @@ class JwsServiceTest : FreeSpec({
 
     "signed object with jsonWebKey can be verified" {
         val payload = randomPayload.encodeToByteArray()
-        val header = JwsHeader(algorithm = JwsAlgorithm.ES256, jsonWebKey = cryptoService.jsonWebKey)
+        val header = JwsHeader(algorithm = JwsAlgorithm.ES256, jsonWebKey = cryptoService.keyPairAdapter.jsonWebKey)
         val signed = jwsService.createSignedJws(header, payload).getOrThrow()
         signed.shouldNotBeNull()
         val result = verifierJwsService.verifyJwsObject(signed)
@@ -87,7 +88,7 @@ class JwsServiceTest : FreeSpec({
         val jku = "https://example.com/" + Random.nextBytes(16).encodeToString(Base64UrlStrict)
         val header = JwsHeader(algorithm = JwsAlgorithm.ES256, keyId = kid, jsonWebKeySetUrl = jku)
         val signed = jwsService.createSignedJws(header, payload).getOrThrow()
-        val validKey = cryptoService.jsonWebKey.copy(keyId = kid)
+        val validKey = cryptoService.keyPairAdapter.jsonWebKey.copy(keyId = kid)
         val jwkSetRetriever: JwkSetRetrieverFunction = { JsonWebKeySet(keys = listOf(validKey)) }
         verifierJwsService = DefaultVerifierJwsService(jwkSetRetriever = jwkSetRetriever)
         verifierJwsService.verifyJwsObject(signed) shouldBe true
@@ -99,7 +100,7 @@ class JwsServiceTest : FreeSpec({
         val jku = "https://example.com/" + Random.nextBytes(16).encodeToString(Base64UrlStrict)
         val header = JwsHeader(algorithm = JwsAlgorithm.ES256, keyId = kid, jsonWebKeySetUrl = jku)
         val signed = jwsService.createSignedJws(header, payload).getOrThrow()
-        val invalidKey = DefaultCryptoService().jsonWebKey
+        val invalidKey = RandomKeyPairAdapter().jsonWebKey
         val jwkSetRetriever: JwkSetRetrieverFunction = { JsonWebKeySet(keys = listOf(invalidKey)) }
         verifierJwsService = DefaultVerifierJwsService(jwkSetRetriever = jwkSetRetriever)
         verifierJwsService.verifyJwsObject(signed) shouldBe false
@@ -110,7 +111,7 @@ class JwsServiceTest : FreeSpec({
         val encrypted = jwsService.encryptJweObject(
             JwsContentTypeConstants.DIDCOMM_ENCRYPTED_JSON,
             stringPayload.encodeToByteArray(),
-            cryptoService.jsonWebKey,
+            cryptoService.keyPairAdapter.jsonWebKey,
             JwsContentTypeConstants.DIDCOMM_PLAIN_JSON,
             JweAlgorithm.ECDH_ES,
             JweEncryption.A256GCM,

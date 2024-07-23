@@ -1,6 +1,4 @@
-import org.gradle.api.Project
 import java.util.*
-
 
 object VcLibVersions {
 
@@ -18,5 +16,6 @@ object VcLibVersions {
 
     object Jvm {
         val json get() = versionOf("jvm.json")
+        val `authlete-cbor` get() = versionOf("jvm.cbor")
     }
 }

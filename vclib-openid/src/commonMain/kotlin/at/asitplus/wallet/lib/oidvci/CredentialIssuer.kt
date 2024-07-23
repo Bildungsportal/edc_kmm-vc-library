@@ -1,6 +1,7 @@
 package at.asitplus.wallet.lib.oidvci
 
 import at.asitplus.KmmResult
+import at.asitplus.catching
 import at.asitplus.crypto.datatypes.cose.CborWebToken
 import at.asitplus.crypto.datatypes.cose.CoseSigned
 import at.asitplus.crypto.datatypes.io.Base64UrlStrict
@@ -9,7 +10,9 @@ import at.asitplus.crypto.datatypes.jws.JwsSigned
 import at.asitplus.crypto.datatypes.pki.X509Certificate
 import at.asitplus.wallet.lib.agent.Issuer
 import at.asitplus.wallet.lib.agent.IssuerCredentialDataProvider
+import at.asitplus.wallet.lib.data.AttributeIndex
 import at.asitplus.wallet.lib.data.ConstantIndex
+import at.asitplus.wallet.lib.data.VcDataModelConstants.VERIFIABLE_CREDENTIAL
 import at.asitplus.wallet.lib.oidc.OpenIdConstants.Errors
 import at.asitplus.wallet.lib.oidc.OpenIdConstants.ProofType
 import com.benasher44.uuid.uuid4
@@ -107,77 +110,79 @@ class CredentialIssuer(
     suspend fun credential(
         accessToken: String,
         params: CredentialRequestParameters
-    ): KmmResult<CredentialResponseParameters> {
+    ): KmmResult<CredentialResponseParameters> = catching {
         val proof = params.proof
-            ?: return KmmResult.failure<CredentialResponseParameters>(OAuth2Exception(Errors.INVALID_REQUEST))
+            ?: throw OAuth2Exception(Errors.INVALID_REQUEST)
                 .also { Napier.w("credential: client did not provide proof of possession") }
         val subjectPublicKey = when (proof.proofType) {
             ProofType.JWT -> {
                 if (proof.jwt == null)
-                    return KmmResult.failure<CredentialResponseParameters>(OAuth2Exception(Errors.INVALID_PROOF))
+                    throw OAuth2Exception(Errors.INVALID_PROOF)
                         .also { Napier.w("credential: client did provide invalid proof: $proof") }
                 val jwsSigned = JwsSigned.parse(proof.jwt).getOrNull()
-                    ?: return KmmResult.failure<CredentialResponseParameters>(OAuth2Exception(Errors.INVALID_PROOF))
+                    ?: throw OAuth2Exception(Errors.INVALID_PROOF)
                         .also { Napier.w("credential: client did provide invalid proof: $proof") }
                 val jwt = JsonWebToken.deserialize(jwsSigned.payload.decodeToString()).getOrNull()
-                    ?: return KmmResult.failure<CredentialResponseParameters>(OAuth2Exception(Errors.INVALID_PROOF))
+                    ?: throw OAuth2Exception(Errors.INVALID_PROOF)
                         .also { Napier.w("credential: client did provide invalid JWT in proof: $proof") }
                 if (jwt.nonce == null || !authorizationService.verifyAndRemoveClientNonce(jwt.nonce!!))
-                    return KmmResult.failure<CredentialResponseParameters>(OAuth2Exception(Errors.INVALID_PROOF))
+                    throw OAuth2Exception(Errors.INVALID_PROOF)
                         .also { Napier.w("credential: client did provide invalid nonce in JWT in proof: ${jwt.nonce}") }
                 if (jwsSigned.header.type != ProofType.JWT_HEADER_TYPE.stringRepresentation)
-                    return KmmResult.failure<CredentialResponseParameters>(OAuth2Exception(Errors.INVALID_PROOF))
+                    throw OAuth2Exception(Errors.INVALID_PROOF)
                         .also { Napier.w("credential: client did provide invalid header type in JWT in proof: ${jwsSigned.header}") }
                 if (jwt.audience == null || jwt.audience != publicContext)
-                    return KmmResult.failure<CredentialResponseParameters>(OAuth2Exception(Errors.INVALID_PROOF))
+                    throw OAuth2Exception(Errors.INVALID_PROOF)
                         .also { Napier.w("credential: client did provide invalid audience in JWT in proof: ${jwsSigned.header}") }
                 jwsSigned.header.publicKey
-                    ?: return KmmResult.failure<CredentialResponseParameters>(OAuth2Exception(Errors.INVALID_PROOF))
+                    ?: throw OAuth2Exception(Errors.INVALID_PROOF)
                         .also { Napier.w("credential: client did provide no valid key in header in JWT in proof: ${jwsSigned.header}") }
             }
 
             ProofType.CWT -> {
                 if (proof.cwt == null)
-                    return KmmResult.failure<CredentialResponseParameters>(OAuth2Exception(Errors.INVALID_PROOF))
+                    throw OAuth2Exception(Errors.INVALID_PROOF)
                         .also { Napier.w("credential: client did provide invalid proof: $proof") }
                 val coseSigned = CoseSigned.deserialize(proof.cwt.decodeToByteArray(Base64UrlStrict)).getOrNull()
-                    ?: return KmmResult.failure<CredentialResponseParameters>(OAuth2Exception(Errors.INVALID_PROOF))
+                    ?: throw OAuth2Exception(Errors.INVALID_PROOF)
                         .also { Napier.w("credential: client did provide invalid proof: $proof") }
 
                 val cwt = coseSigned.payload?.let { CborWebToken.deserialize(it).getOrNull() }
-                    ?: return KmmResult.failure<CredentialResponseParameters>(OAuth2Exception(Errors.INVALID_PROOF))
+                    ?: throw OAuth2Exception(Errors.INVALID_PROOF)
                         .also { Napier.w("credential: client did provide invalid CWT in proof: $proof") }
                 if (cwt.nonce == null || !authorizationService.verifyAndRemoveClientNonce(cwt.nonce!!.decodeToString()))
-                    return KmmResult.failure<CredentialResponseParameters>(OAuth2Exception(Errors.INVALID_PROOF))
+                    throw OAuth2Exception(Errors.INVALID_PROOF)
                         .also { Napier.w("credential: client did provide invalid nonce in CWT in proof: ${cwt.nonce}") }
                 val header = coseSigned.protectedHeader.value
                 if (header.contentType != ProofType.CWT_HEADER_TYPE.stringRepresentation)
-                    return KmmResult.failure<CredentialResponseParameters>(OAuth2Exception(Errors.INVALID_PROOF))
+                    throw OAuth2Exception(Errors.INVALID_PROOF)
                         .also { Napier.w("credential: client did provide invalid header type in CWT in proof: $header") }
                 if (cwt.audience == null || cwt.audience != publicContext)
-                    return KmmResult.failure<CredentialResponseParameters>(OAuth2Exception(Errors.INVALID_PROOF))
+                    throw OAuth2Exception(Errors.INVALID_PROOF)
                         .also { Napier.w("credential: client did provide invalid audience in CWT in proof: $header") }
                 header.certificateChain?.let { X509Certificate.decodeFromByteArray(it)?.publicKey }
-                    ?: return KmmResult.failure<CredentialResponseParameters>(OAuth2Exception(Errors.INVALID_PROOF))
+                    ?: throw OAuth2Exception(Errors.INVALID_PROOF)
                         .also { Napier.w("credential: client did provide no valid key in header in CWT in proof: $header") }
             }
 
             else -> {
-                return KmmResult.failure<CredentialResponseParameters>(OAuth2Exception(Errors.INVALID_PROOF))
+                throw OAuth2Exception(Errors.INVALID_PROOF)
                     .also { Napier.w("credential: client did provide invalid proof type: ${proof.proofType}") }
             }
         }
 
         val userInfo = authorizationService.getUserInfo(accessToken).getOrNull()
-            ?: return KmmResult.failure<CredentialResponseParameters>(OAuth2Exception(Errors.INVALID_TOKEN))
+            ?: throw OAuth2Exception(Errors.INVALID_TOKEN)
                 .also { Napier.w("credential: client did not provide correct token: $accessToken") }
 
         val issuedCredentialResult = when {
             params.format != null -> {
+                val credentialScheme = params.extractCredentialScheme(params.format)
+                    ?: throw OAuth2Exception(Errors.INVALID_REQUEST)
+                        .also { Napier.w("credential: client did not provide correct credential scheme: ${params}") }
                 issuer.issueCredential(
                     subjectPublicKey = subjectPublicKey,
-                    attributeTypes = listOfNotNull(params.sdJwtVcType, params.docType)
-                            + (params.credentialDefinition?.types?.toList() ?: listOf()),
+                    credentialScheme = credentialScheme,
                     representation = params.format.toRepresentation(),
                     claimNames = params.claims?.map { it.value.keys }?.flatten()?.ifEmpty { null },
                     dataProviderOverride = buildIssuerCredentialDataProviderOverride(userInfo)
@@ -185,14 +190,12 @@ class CredentialIssuer(
             }
 
             params.credentialIdentifier != null -> {
-                val (type, representation) = decodeFromCredentialIdentifier(params.credentialIdentifier)
-                if (type.isEmpty()) {
-                    return KmmResult.failure<CredentialResponseParameters>(OAuth2Exception(Errors.INVALID_REQUEST))
+                val (credentialScheme, representation) = decodeFromCredentialIdentifier(params.credentialIdentifier)
+                    ?: throw OAuth2Exception(Errors.INVALID_REQUEST)
                         .also { Napier.w("credential: client did not provide correct credential identifier: ${params.credentialIdentifier}") }
-                }
                 issuer.issueCredential(
                     subjectPublicKey = subjectPublicKey,
-                    attributeTypes = listOf(type),
+                    credentialScheme = credentialScheme,
                     representation = representation.toRepresentation(),
                     claimNames = params.claims?.map { it.value.keys }?.flatten()?.ifEmpty { null },
                     dataProviderOverride = buildIssuerCredentialDataProviderOverride(userInfo)
@@ -200,19 +203,30 @@ class CredentialIssuer(
             }
 
             else -> {
-                return KmmResult.failure<CredentialResponseParameters>(OAuth2Exception(Errors.INVALID_REQUEST))
+                throw OAuth2Exception(Errors.INVALID_REQUEST)
                     .also { Napier.w("credential: client did not provide format or credential identifier in params: $params") }
             }
         }
-        if (issuedCredentialResult.successful.isEmpty()) {
-            return KmmResult.failure<CredentialResponseParameters>(OAuth2Exception(Errors.INVALID_REQUEST))
+        val issuedCredential = issuedCredentialResult.getOrElse {
+            throw OAuth2Exception(Errors.INVALID_REQUEST)
                 .also { Napier.w("credential: issuer did not issue credential: $issuedCredentialResult") }
         }
         // TODO Implement Batch Credential Endpoint for more than one credential response
-        val result = issuedCredentialResult.successful.first().toCredentialResponseParameters()
-        Napier.i("credential returns $result")
-        return KmmResult.success(result)
+
+        issuedCredential.toCredentialResponseParameters()
+            .also { Napier.i("credential returns $it") }
     }
 
 
+}
+
+private fun CredentialRequestParameters.extractCredentialScheme(format: CredentialFormatEnum) = when (format) {
+    CredentialFormatEnum.JWT_VC -> credentialDefinition?.types?.firstOrNull { it != VERIFIABLE_CREDENTIAL }
+        ?.let { AttributeIndex.resolveAttributeType(it) }
+
+    CredentialFormatEnum.VC_SD_JWT,
+    CredentialFormatEnum.JWT_VC_SD_UNOFFICIAL -> sdJwtVcType?.let { AttributeIndex.resolveSdJwtAttributeType(it) }
+
+    CredentialFormatEnum.MSO_MDOC -> docType?.let { AttributeIndex.resolveIsoDoctype(it) }
+    else -> null
 }

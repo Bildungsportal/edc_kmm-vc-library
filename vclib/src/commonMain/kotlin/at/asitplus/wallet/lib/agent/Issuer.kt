@@ -1,7 +1,8 @@
 package at.asitplus.wallet.lib.agent
 
-import at.asitplus.crypto.datatypes.CryptoAlgorithm
+import at.asitplus.KmmResult
 import at.asitplus.crypto.datatypes.CryptoPublicKey
+import at.asitplus.crypto.datatypes.X509SignatureAlgorithm
 import at.asitplus.wallet.lib.data.ConstantIndex
 import at.asitplus.wallet.lib.iso.IssuerSigned
 import kotlinx.datetime.Instant
@@ -14,8 +15,6 @@ import kotlinx.datetime.Instant
  */
 interface Issuer {
 
-    data class FailedAttribute(val attributeType: String, val reason: Throwable)
-
     /**
      * A credential issued by an [Issuer], in a specific format
      */
@@ -26,7 +25,6 @@ interface Issuer {
         data class VcJwt(
             val vcJws: String,
             val scheme: ConstantIndex.CredentialScheme,
-            val attachments: List<Attachment>? = null,
         ) : IssuedCredential()
 
         /**
@@ -46,35 +44,20 @@ interface Issuer {
         ) : IssuedCredential()
     }
 
-    data class IssuedCredentialResult(
-        val successful: List<IssuedCredential> = listOf(),
-        val failed: List<FailedAttribute> = listOf()
-    ) {
-        fun toStoreCredentialInput() = successful.map {
-            when (it) {
-                is IssuedCredential.Iso -> Holder.StoreCredentialInput.Iso(it.issuerSigned, it.scheme)
-                is IssuedCredential.VcSdJwt -> Holder.StoreCredentialInput.SdJwt(it.vcSdJwt, it.scheme)
-                is IssuedCredential.VcJwt -> Holder.StoreCredentialInput.Vc(it.vcJws, it.scheme, it.attachments)
-            }
-        }
-    }
 
     /**
-     * The identifier for this agent, typically the `keyId` from the cryptographic key,
-     * e.g. `did:key:mAB...` or `urn:ietf:params:oauth:jwk-thumbprint:sha256:...`
+     * The public key for this agent, i.e. the public part of the key that signs issued credentials.
      */
-    val identifier: String
+    val keyPair: KeyPairAdapter
 
     /**
      * The cryptographic algorithms supported by this issuer, i.e. the ones from its cryptographic service,
      * used to sign credentials.
      */
-    val cryptoAlgorithms: Set<CryptoAlgorithm>
+    val cryptoAlgorithms: Set<X509SignatureAlgorithm>
 
-    // TODO Extract to pass credential scheme only!
     /**
-     * Issues credentials for some [attributeTypes] (i.e. some of
-     * [at.asitplus.wallet.lib.data.ConstantIndex.CredentialScheme.vcType]) to the subject specified with its public
+     * Issues credentials for some [credentialScheme] to the subject specified with its public
      * key in [subjectPublicKey] in the format specified by [representation].
      * Callers may optionally define some attribute names from [ConstantIndex.CredentialScheme.claimNames] in
      * [claimNames] to request only some claims (if supported by the representation).
@@ -84,11 +67,11 @@ interface Issuer {
      */
     suspend fun issueCredential(
         subjectPublicKey: CryptoPublicKey,
-        attributeTypes: Collection<String>,
+        credentialScheme: ConstantIndex.CredentialScheme,
         representation: ConstantIndex.CredentialRepresentation,
         claimNames: Collection<String>? = null,
         dataProviderOverride: IssuerCredentialDataProvider? = null,
-    ): IssuedCredentialResult
+    ): KmmResult<IssuedCredential>
 
     /**
      * Wraps the revocation information into a VC,
@@ -117,30 +100,10 @@ interface Issuer {
 
     fun compileCurrentRevocationLists(): List<String>
 
-    data class Attachment(
-        val name: String,
-        val mediaType: String,
-        val data: ByteArray,
-    ) {
-        override fun equals(other: Any?): Boolean {
-            if (this === other) return true
-            if (other == null || this::class != other::class) return false
+}
 
-            other as Attachment
-
-            if (name != other.name) return false
-            if (mediaType != other.mediaType) return false
-            if (!data.contentEquals(other.data)) return false
-
-            return true
-        }
-
-        override fun hashCode(): Int {
-            var result = name.hashCode()
-            result = 31 * result + mediaType.hashCode()
-            result = 31 * result + data.contentHashCode()
-            return result
-        }
-    }
-
+fun Issuer.IssuedCredential.toStoreCredentialInput() = when (this) {
+    is Issuer.IssuedCredential.Iso -> Holder.StoreCredentialInput.Iso(issuerSigned, scheme)
+    is Issuer.IssuedCredential.VcSdJwt -> Holder.StoreCredentialInput.SdJwt(vcSdJwt, scheme)
+    is Issuer.IssuedCredential.VcJwt -> Holder.StoreCredentialInput.Vc(vcJws, scheme)
 }
