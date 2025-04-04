@@ -10,6 +10,7 @@ import at.asitplus.openid.OpenIdConstants
 import at.asitplus.openid.OpenIdConstants.SCOPE_OPENID
 import at.asitplus.openid.OpenIdConstants.SCOPE_PROFILE
 import at.asitplus.openid.OpenIdConstants.VP_TOKEN
+import at.asitplus.openid.TransactionData
 import at.asitplus.openid.dcql.*
 import at.asitplus.wallet.lib.data.ConstantIndex
 import at.asitplus.wallet.lib.data.ConstantIndex.CredentialRepresentation
@@ -21,14 +22,10 @@ import io.ktor.http.quote
 typealias RequestedAttributes = Set<String>
 
 interface RequestOptions {
-    /**
-     * Requested credentials, should be at least one
-     */
+    /** Requested credentials, should be at least one. */
     val credentials: Set<RequestOptionsCredential>
 
-    /**
-     * Presentation mechanism to be used for requesting credentials
-     */
+    /** Presentation mechanism to be used for requesting credentials. */
     val presentationMechanism: PresentationMechanismEnum
 
     /**
@@ -52,9 +49,7 @@ interface RequestOptions {
      */
     val responseType: String
 
-    /**
-     * Opaque value which will be returned by the OpenId Provider and also in [AuthnResponseResult]
-     */
+    /** Opaque value which will be returned by the OpenId Provider and also in [AuthnResponseResult]. */
     val state: String
 
     /**
@@ -72,6 +67,17 @@ interface RequestOptions {
     val isAnyDirectPost: Boolean
         get() = (responseMode == OpenIdConstants.ResponseMode.DirectPost) ||
                 (responseMode == OpenIdConstants.ResponseMode.DirectPostJwt)
+
+    val isSiop: Boolean
+        get() = responseType.contains(OpenIdConstants.ID_TOKEN)
+
+    val isDcql: Boolean
+        get() = presentationMechanism == PresentationMechanismEnum.DCQL
+
+    val isPresentationExchange
+        get() = presentationMechanism == PresentationMechanismEnum.PresentationExchange
+
+    val transactionData: Set<TransactionData>?
 
     fun buildScope(): String = listOf(SCOPE_OPENID, SCOPE_PROFILE).joinToString(" ")
 
@@ -97,6 +103,7 @@ data class OpenIdRequestOptions(
     override val clientMetadataUrl: String? = null,
     override val encryption: Boolean = false,
     override val presentationMechanism: PresentationMechanismEnum = PresentationMechanismEnum.PresentationExchange,
+    override val transactionData: Set<TransactionData>? = null,
 ) : RequestOptions {
 
     override fun toDCQLQuery(): DCQLQuery? = if (credentials.isEmpty()) null else DCQLQuery(
@@ -144,7 +151,7 @@ data class OpenIdRequestOptions(
                 }
 
                 DCQLCredentialQueryInstance(
-                    id = DCQLCredentialQueryIdentifier(uuid4().toString()),
+                    id = DCQLCredentialQueryIdentifier(credential.id),
                     format = format,
                     meta = meta,
                     claims = claims,
@@ -174,13 +181,9 @@ data class OpenIdRequestOptions(
 }
 
 data class RequestOptionsCredential(
-    /**
-     * Credential type to request, or `null` to make no restrictions
-     */
+    /** Credential type to request, or `null` to make no restrictions. */
     val credentialScheme: ConstantIndex.CredentialScheme,
-    /**
-     * Required representation, see [ConstantIndex.CredentialRepresentation]
-     */
+    /** Required representation, see [ConstantIndex.CredentialRepresentation]. */
     val representation: CredentialRepresentation = CredentialRepresentation.PLAIN_JWT,
     /**
      * List of attributes that shall be requested explicitly (selective disclosure),
@@ -193,8 +196,10 @@ data class RequestOptionsCredential(
      * or `null` to make no restrictions
      */
     val requestedOptionalAttributes: RequestedAttributes? = null,
+    /** ID to be used in [DifInputDescriptor] or [QesInputDescriptor], or [DCQLCredentialQueryInstance] */
+    val id: String = uuid4().toString(),
 ) {
-    fun buildId() = if (isMdoc) credentialScheme.isoDocType!! else uuid4().toString()
+    fun buildId() = if (isMdoc) credentialScheme.isoDocType!! else id
 
     private val isMdoc: Boolean
         get() = credentialScheme.isoDocType != null && representation == CredentialRepresentation.ISO_MDOC

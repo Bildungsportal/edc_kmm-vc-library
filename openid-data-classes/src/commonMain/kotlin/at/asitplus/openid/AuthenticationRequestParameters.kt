@@ -8,6 +8,7 @@ import at.asitplus.signum.indispensable.io.ByteArrayBase64UrlSerializer
 import at.asitplus.signum.indispensable.josef.JsonWebToken
 import at.asitplus.signum.indispensable.josef.io.InstantLongSerializer
 import kotlinx.datetime.Instant
+import kotlinx.serialization.Contextual
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -16,7 +17,7 @@ import kotlinx.serialization.encodeToString
  * Contents of an OIDC Authentication Request.
  *
  * Usually, these parameters are appended to the Authorization Endpoint URL of the OpenId Provider (maybe the
- * Wallet App in case of SIOPv2, or the Credential Issuer for OID4VCI).
+ * Wallet App in case of OpenID4VP, or the Credential Issuer for OID4VCI).
  */
 @Serializable
 data class AuthenticationRequestParameters(
@@ -39,6 +40,14 @@ data class AuthenticationRequestParameters(
      */
     @SerialName("client_id")
     override val clientId: String? = null,
+
+    /**
+     * OID4VP: OPTIONAL. A string identifying the scheme of the value in the `client_id` Authorization Request parameter
+     * (Client Identifier scheme). Kept here only for compatibility with POTENTIAL.
+     */
+    @Deprecated("Removed from OpenID4VP Draft 22")
+    @SerialName("client_id_scheme")
+    val clientIdScheme: OpenIdConstants.ClientIdScheme? = null,
 
     /**
      * OIDC: REQUIRED. Redirection URI to which the response will be sent. This URI MUST exactly match one of the
@@ -365,10 +374,23 @@ data class AuthenticationRequestParameters(
      * parameter set with details about the transaction that the Verifier is requesting the End-User to authorize.
      * The Wallet MUST return an error if a request contains even one unrecognized transaction data type or transaction
      * data not conforming to the respective type definition.
+     *
+     * Transaction data classes are implemented in module [rqes-data-classes] and thus not known at compile time.
+     * For the contextual serializer see [at.asitplus.rqes.serializers.Base64URLTransactionDataSerializer]
      */
     @SerialName("transaction_data")
-    override val transactionData: Set<String>? = null,
+    override val transactionData: Set<@Contextual TransactionData>? = null,
 ) : RequestParameters {
+
+    /**
+     * Reads the [OpenIdConstants.ClientIdScheme] of this request either directly from [clientIdScheme],
+     * or by extracting the prefix from [clientId] (as specified in OpenID4VP draft 22 onwards).
+     */
+    @Suppress("DEPRECATION")
+    override val clientIdSchemeExtracted: OpenIdConstants.ClientIdScheme?
+        get() = clientIdScheme
+            ?: clientId?.let { OpenIdConstants.ClientIdScheme.decodeFromClientId(it) }
+
     fun serialize() = odcJsonSerializer.encodeToString(this)
 
     override fun equals(other: Any?): Boolean {

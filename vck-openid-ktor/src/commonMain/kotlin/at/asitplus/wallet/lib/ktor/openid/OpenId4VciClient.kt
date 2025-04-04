@@ -7,6 +7,8 @@ import at.asitplus.openid.*
 import at.asitplus.openid.OpenIdConstants.AUTH_METHOD_ATTEST_JWT_CLIENT_AUTH
 import at.asitplus.openid.OpenIdConstants.PARAMETER_PROMPT
 import at.asitplus.openid.OpenIdConstants.PARAMETER_PROMPT_LOGIN
+import at.asitplus.openid.OpenIdConstants.PATH_WELL_KNOWN_OAUTH_AUTHORIZATION_SERVER
+import at.asitplus.openid.OpenIdConstants.PATH_WELL_KNOWN_OPENID_CONFIGURATION
 import at.asitplus.openid.OpenIdConstants.TOKEN_TYPE_DPOP
 import at.asitplus.wallet.lib.agent.DefaultCryptoService
 import at.asitplus.wallet.lib.agent.EphemeralKeyWithoutCert
@@ -166,9 +168,13 @@ class OpenId4VciClient(
         val issuerMetadata = credentialIdentifierInfo.issuerMetadata
         val authorizationServer = issuerMetadata.authorizationServers?.firstOrNull()
             ?: credentialIssuerUrl
-        val oauthMetadata = client
-            .get("$authorizationServer${OpenIdConstants.PATH_WELL_KNOWN_OPENID_CONFIGURATION}")
-            .body<OAuth2AuthorizationServerMetadata>()
+        val oauthMetadata = catching {
+            client.get("$authorizationServer$PATH_WELL_KNOWN_OAUTH_AUTHORIZATION_SERVER")
+                .body<OAuth2AuthorizationServerMetadata>()
+        }.getOrElse {
+            client.get("$authorizationServer$PATH_WELL_KNOWN_OPENID_CONFIGURATION")
+                .body<OAuth2AuthorizationServerMetadata>()
+        }
 
         val state = uuid4().toString()
         ProvisioningContext(
@@ -442,9 +448,13 @@ class OpenId4VciClient(
         val issuerMetadata = credentialIdentifierInfo.issuerMetadata
         val authorizationServer = issuerMetadata.authorizationServers?.firstOrNull()
             ?: credentialOffer.credentialIssuer
-        val oauthMetadata = client
-            .get("$authorizationServer${OpenIdConstants.PATH_WELL_KNOWN_OPENID_CONFIGURATION}")
-            .body<OAuth2AuthorizationServerMetadata>()
+        val oauthMetadata = catching {
+            client.get("$authorizationServer$PATH_WELL_KNOWN_OAUTH_AUTHORIZATION_SERVER")
+                .body<OAuth2AuthorizationServerMetadata>()
+        }.getOrElse {
+            client.get("$authorizationServer$PATH_WELL_KNOWN_OPENID_CONFIGURATION")
+                .body<OAuth2AuthorizationServerMetadata>()
+        }
         val state = uuid4().toString()
 
         credentialOffer.grants?.preAuthorizedCode?.let {
@@ -502,18 +512,16 @@ class OpenId4VciClient(
         } ?: throw Exception("No offer grants received in ${credentialOffer.grants}")
     }
 
-    @Suppress("DEPRECATION")
     @Throws(Exception::class)
     private fun String.toStoreCredentialInput(
         credentialRepresentation: ConstantIndex.CredentialRepresentation,
         credentialScheme: ConstantIndex.CredentialScheme,
-    ) = when (credentialRepresentation) {
+    ): Holder.StoreCredentialInput = when (credentialRepresentation) {
         ConstantIndex.CredentialRepresentation.PLAIN_JWT -> Vc(this, credentialScheme)
         ConstantIndex.CredentialRepresentation.SD_JWT -> SdJwt(this, credentialScheme)
-        ConstantIndex.CredentialRepresentation.ISO_MDOC -> runCatching { decodeToByteArray(Base64()) }.getOrNull()
-            ?.let { IssuerSigned.deserialize(it) }?.getOrNull()
-            ?.let { Iso(it, credentialScheme) }
-            ?: throw Exception("Invalid credential format: $this")
+        ConstantIndex.CredentialRepresentation.ISO_MDOC ->
+            runCatching { Iso(IssuerSigned.deserialize(decodeToByteArray(Base64())).getOrThrow(), credentialScheme) }
+                .getOrElse { throw Exception("Invalid credential format: $this", it) }
     }
 
     /**

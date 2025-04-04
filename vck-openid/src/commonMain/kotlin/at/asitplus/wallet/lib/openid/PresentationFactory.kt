@@ -12,7 +12,6 @@ import at.asitplus.signum.indispensable.CryptoPublicKey
 import at.asitplus.signum.indispensable.cosef.CoseSigned
 import at.asitplus.signum.indispensable.cosef.io.ByteStringWrapper
 import at.asitplus.signum.indispensable.cosef.io.coseCompliantSerializer
-import at.asitplus.signum.indispensable.io.Base64Strict
 import at.asitplus.signum.indispensable.io.Base64UrlStrict
 import at.asitplus.signum.indispensable.josef.JsonWebKey
 import at.asitplus.signum.indispensable.josef.JwsSigned
@@ -20,6 +19,7 @@ import at.asitplus.signum.indispensable.josef.toJsonWebKey
 import at.asitplus.wallet.lib.agent.*
 import at.asitplus.wallet.lib.cbor.CoseService
 import at.asitplus.wallet.lib.data.CredentialPresentation
+import at.asitplus.wallet.lib.data.DeprecatedBase64URLTransactionDataSerializer
 import at.asitplus.wallet.lib.data.dif.PresentationSubmissionValidator
 import at.asitplus.wallet.lib.data.vckJsonSerializer
 import at.asitplus.wallet.lib.iso.*
@@ -28,13 +28,12 @@ import at.asitplus.wallet.lib.oidvci.OAuth2Exception
 import at.asitplus.wallet.lib.oidvci.OAuth2Exception.*
 import io.github.aakira.napier.Napier
 import io.matthewnelson.encoding.base16.Base16
-import io.matthewnelson.encoding.core.Decoder.Companion.decodeToByteArray
 import io.matthewnelson.encoding.core.Encoder.Companion.encodeToString
 import kotlinx.datetime.Clock
 import kotlinx.serialization.PolymorphicSerializer
 import kotlinx.serialization.builtins.ByteArraySerializer
 import kotlinx.serialization.encodeToByteArray
-import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.jsonArray
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.random.Random
@@ -90,17 +89,20 @@ internal class PresentationFactory(
     /**
      * Parses all `transaction_data` fields from the request, with a JsonPath, because
      * ... for OpenID4VP Draft 23, that's encoded in the AuthnRequest
-     * ... but for Potential UC 5, that's encoded in the input descriptor,
-     *     and we don't have access to that class from the module vck-rqes
+     * ... but for Potential UC 5, that's encoded in the input descriptor
+     *     and we cannot deserialize into data classes defined in [at.asitplus.rqes]
      */
-    private fun parseTransactionData(request: RequestParameters): Set<ByteArray>? =
+    private fun parseTransactionData(request: RequestParameters): Collection<TransactionData>? =
         with(vckJsonSerializer.encodeToJsonElement(PolymorphicSerializer(RequestParameters::class), request)) {
             JsonPath("$..transaction_data").query(this)
                 .flatMap { it.value.jsonArray }
-                .map { vckJsonSerializer.decodeFromJsonElement<String>(it) }
-                .filter { it.isNotEmpty() }
-                .map { if (it.contains(",")) it.encodeToByteArray() else it.decodeToByteArray(Base64UrlStrict) }
-                .toSet()
+                .map { vckJsonSerializer.encodeToString<JsonElement>(it) }
+                .mapNotNull {
+                    runCatching {
+                        vckJsonSerializer.decodeFromString(DeprecatedBase64URLTransactionDataSerializer, it)
+                    }.getOrNull()
+                }
+                .distinct()
                 .ifEmpty { null }
         }
 
