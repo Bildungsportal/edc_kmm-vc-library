@@ -1,5 +1,16 @@
 # Changelog
 
+Release 5.6.4:
+ - OpenID for Verifiable Presentations:
+   - Correctly handle requested attributes with nested paths, i.e. `address.formatted`
+ - OAuth2.0:
+   - In `OAuth2Client.createAuthRequest()` rename `wrapAsPar` to `wrapAsJar` to match its semantics
+ - OpenID for Verifiable Credential Issuance:
+   - Sign authn request as JAR only when AS supports it
+   - Support extracting `credential_configuration_id` from server's authorization details
+   - In `OpenId4VciClient` make constructor parameter `loadClientAttestationJwt` optional
+   - In `OpenId4VciClient` make constructor parameter `signClientAttestationPop` optional
+
 Release 5.6.3:
  - OpenID for Verifiable Credential Issuance:
    - Increase interop with wwWallet (optional parameter `proof_signing_alg_values_supported`)
